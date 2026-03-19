@@ -1,17 +1,24 @@
+// Local development server.
+// On Vercel, api/* serverless functions handle proxying instead.
+// WebSocket connects directly from the browser to Polymarket's WSS endpoint.
+
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const { createServer } = require('http');
 const https = require('https');
-const WebSocket = require('ws');
-const path = require('path');
+const path  = require('path');
 
-const app = express();
-const PORT = 3000;
+const app  = express();
+const PORT = process.env.PORT || 3000;
 
-// ── Static files (serve index.html) ──────────────────────────────────────────
+// ── Static files ──────────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname)));
 
-// ── REST proxy routes ─────────────────────────────────────────────────────────
+// ── /api/me — serve USER_ADDRESS from env var ─────────────────────────────────
+app.get('/api/me', (req, res) => {
+  res.json({ address: process.env.USER_ADDRESS || '' });
+});
+
+// ── REST proxy helpers ────────────────────────────────────────────────────────
 const proxyOpts = (target) => ({
   target,
   changeOrigin: true,
@@ -44,9 +51,12 @@ app.use('/api/data', createProxyMiddleware({
 // METAR — fetched server-side to avoid CORS, per-station cache
 const metarCache = {};
 app.get('/api/metar', (req, res) => {
-  const station = (req.query.station || 'EGLC').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const cache   = metarCache[station] || { data: null, ts: 0 };
-  const now     = Date.now();
+  const raw     = (req.query.station || 'EGLC') + '';
+  const station = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  if (!/^[A-Z0-9]{3,4}$/.test(station)) return res.status(400).json({ error: 'Invalid station' });
+
+  const cache = metarCache[station] || { data: null, ts: 0 };
+  const now   = Date.now();
   if (cache.data && now - cache.ts < 60_000) return res.json(cache.data);
 
   const url = `https://aviationweather.gov/api/data/metar?ids=${station}&format=json&taf=false&hours=48`;
@@ -59,50 +69,20 @@ app.get('/api/metar', (req, res) => {
         metarCache[station] = { data: json, ts: Date.now() };
         res.json(json);
       } catch(e) {
-        console.error('[metar] parse error', e.message, body.slice(0, 200));
         if (cache.data) return res.json(cache.data);
         res.status(502).json({ error: 'METAR parse error' });
       }
     });
   }).on('error', e => {
-    console.error('[metar] fetch error', e.message);
     if (cache.data) return res.json(cache.data);
     res.status(502).json({ error: e.message });
   });
 });
 
-// ── WebSocket proxy  (ws://localhost:3000/ws/market → wss://ws-subscriptions-clob.polymarket.com/ws/market) ──
-const httpServer = createServer(app);
-const wssLocal   = new WebSocket.Server({ noServer: true });
-
-httpServer.on('upgrade', (req, socket, head) => {
-  if (req.url === '/ws/market') {
-    wssLocal.handleUpgrade(req, socket, head, (clientWs) => {
-      wssLocal.emit('connection', clientWs, req);
-    });
-  } else {
-    socket.destroy();
-  }
-});
-
-wssLocal.on('connection', (clientWs) => {
-  const upstream = new WebSocket('wss://ws-subscriptions-clob.polymarket.com/ws/market');
-
-  upstream.on('open',    ()    => console.log('[ws] upstream connected'));
-  upstream.on('message', (data) => {
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data);
-  });
-  upstream.on('close',   ()    => clientWs.close());
-  upstream.on('error',   (e)   => { console.error('[ws upstream error]', e.message); clientWs.close(); });
-
-  clientWs.on('message', (data) => {
-    if (upstream.readyState === WebSocket.OPEN) upstream.send(data);
-  });
-  clientWs.on('close',   ()    => upstream.close());
-  clientWs.on('error',   (e)   => console.error('[ws client error]', e.message));
-});
-
 // ── Start ─────────────────────────────────────────────────────────────────────
-httpServer.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`\n  Polydash running at  http://localhost:${PORT}\n`);
+  if (!process.env.USER_ADDRESS) {
+    console.warn('  [warn] USER_ADDRESS env var not set — user positions panel will be empty\n');
+  }
 });

@@ -1034,6 +1034,25 @@
     }
     .archive-btn:hover { color: var(--text); background: var(--border); }
     .archive-btn.has-snaps { color: var(--text); }
+
+    /* ── Data backup buttons ── */
+    .data-btn {
+      background: var(--surface2);
+      color: var(--dim);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .data-btn:hover { color: var(--text); background: var(--border); }
+    .data-btn.import-btn:hover { color: var(--green); }
   </style>
 </head>
 <body>
@@ -1047,6 +1066,9 @@
   <h1 id="pageTitle" style="flex:1;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Loading…</h1>
   <button class="snap-btn" onclick="takeSnapshot()" title="Save current snapshot">&#9679; Snapshot</button>
   <button class="archive-btn" id="archiveBtn" onclick="toggleArchive()" title="View archive">&#9776; Archive</button>
+  <button class="data-btn" onclick="exportData()" title="Export all data to JSON file">&#8595; Export</button>
+  <button class="data-btn import-btn" onclick="document.getElementById('importFile').click()" title="Import data from JSON file">&#8593; Import</button>
+  <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)" />
   <div class="ws-status">
     <div class="ws-dot connecting" id="wsDot"></div>
   </div>
@@ -1131,8 +1153,8 @@
   <!-- ── Right: user positions ── -->
   <div class="user-panel">
     <div class="user-panel-header">
-      <div class="user-avatar">W</div>
-      <span class="user-name" id="userName">wishaaaa</span>
+      <div class="user-avatar" id="userAvatar">?</div>
+      <span class="user-name" id="userName">Loading…</span>
       <span class="user-pnl" id="userPnl">—</span>
     </div>
     <div class="user-meta">
@@ -2012,9 +2034,31 @@ function setupChartMouse() {
 /* ═══════════════════════════════════════════════════════════
    USER POSITIONS
 ═══════════════════════════════════════════════════════════ */
-const USER_ADDRESS   = '0x37ebc10af6dd7f6b89f085a290e1f72952e31df0';
-const USER_REFRESH   = 30000;
-let userUpdatedTs    = null;
+// USER_ADDRESS is loaded from /api/me (server-side env var USER_ADDRESS).
+// It is never hardcoded in client-side source.
+let USER_ADDRESS   = '';
+const USER_REFRESH = 30000;
+let userUpdatedTs  = null;
+
+async function initUserAddress() {
+  try {
+    const res  = await fetch('/api/me');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    USER_ADDRESS = data.address || '';
+    if (USER_ADDRESS) {
+      // Show first 6 and last 4 chars of address, e.g. 0x37eb…df0
+      const short = USER_ADDRESS.slice(0, 6) + '…' + USER_ADDRESS.slice(-4);
+      document.getElementById('userName').textContent = short;
+      document.getElementById('userAvatar').textContent = USER_ADDRESS.slice(2, 3).toUpperCase();
+    } else {
+      document.getElementById('userPositions').innerHTML =
+        '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">No USER_ADDRESS configured.<br>Set it in Vercel environment variables.</div>';
+    }
+  } catch(e) {
+    console.warn('initUserAddress:', e.message);
+  }
+}
 
 setInterval(() => {
   if (userUpdatedTs)
@@ -2023,6 +2067,7 @@ setInterval(() => {
 }, 10000);
 
 async function loadUserPositions() {
+  if (!USER_ADDRESS) return;
   try {
     const res = await fetch(
       `/api/data/positions?user=${USER_ADDRESS}&sizeThreshold=0.1&limit=100&sortBy=CURRENT&sortDirection=DESC`
@@ -2400,6 +2445,79 @@ function renderPaperTrades() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   DATA EXPORT / IMPORT
+   Lets users back up and restore all localStorage data to a
+   JSON file, so nothing is lost if the browser clears storage.
+═══════════════════════════════════════════════════════════ */
+function getAllStorageData() {
+  const keys = [
+    'polydash_archive_london',
+    'polydash_archive_paris',
+    'polydash_paper_london_open',
+    'polydash_paper_london_closed',
+    'polydash_paper_paris_open',
+    'polydash_paper_paris_closed',
+  ];
+  const out = { version: 1, exportedAt: new Date().toISOString(), data: {} };
+  for (const key of keys) {
+    try { out.data[key] = JSON.parse(localStorage.getItem(key)) ?? null; }
+    catch { out.data[key] = null; }
+  }
+  return out;
+}
+
+function exportData() {
+  const payload  = getAllStorageData();
+  const json     = JSON.stringify(payload, null, 2);
+  const blob     = new Blob([json], { type: 'application/json' });
+  const url      = URL.createObjectURL(blob);
+  const a        = document.createElement('a');
+  const dateStr  = new Date().toISOString().slice(0, 10);
+  a.href         = url;
+  a.download     = `polydash-backup-${dateStr}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed?.data || typeof parsed.data !== 'object') throw new Error('Invalid file format');
+
+      const validKeys = new Set([
+        'polydash_archive_london',
+        'polydash_archive_paris',
+        'polydash_paper_london_open',
+        'polydash_paper_london_closed',
+        'polydash_paper_paris_open',
+        'polydash_paper_paris_closed',
+      ]);
+
+      let imported = 0;
+      for (const [key, value] of Object.entries(parsed.data)) {
+        if (!validKeys.has(key)) continue; // ignore unknown keys
+        if (value === null) { localStorage.removeItem(key); }
+        else { localStorage.setItem(key, JSON.stringify(value)); }
+        imported++;
+      }
+
+      renderArchive();
+      renderPaperTrades();
+      alert(`Imported ${imported} data keys successfully.`);
+    } catch(err) {
+      alert('Import failed: ' + err.message);
+    }
+    // Reset input so the same file can be re-imported if needed
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+/* ═══════════════════════════════════════════════════════════
    CITY SWITCHING
 ═══════════════════════════════════════════════════════════ */
 function switchCity(cityId) {
@@ -2457,8 +2575,11 @@ updateTabLabels();
 setupChartMouse();
 renderArchive();
 renderPaperTrades();
-loadUserPositions();
-setInterval(loadUserPositions, USER_REFRESH);
+// Load user address from server env, then start polling positions
+initUserAddress().then(() => {
+  loadUserPositions();
+  setInterval(loadUserPositions, USER_REFRESH);
+});
 
 Promise.all([loadMarkets(), loadMetar()]).catch(err => {
   console.error(err);

@@ -1,14 +1,30 @@
-// METAR proxy with per-station cache (in-memory, resets on cold start)
+// METAR proxy with per-station in-memory cache (resets on cold start).
+// Validates the station code before proxying.
 const metarCache = {};
 
+function isSafeOrigin(req) {
+  const origin = req.headers.origin || '';
+  const host   = req.headers.host || '';
+  return !origin || origin.includes(host) || origin.includes('localhost');
+}
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (!isSafeOrigin(req)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
-  const station = ((req.query.station || 'EGLC') + '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Vary', 'Origin');
+
+  // Strict station code validation: 3–4 uppercase alphanumeric chars only
+  const raw     = (req.query.station || 'EGLC') + '';
+  const station = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  if (!/^[A-Z0-9]{3,4}$/.test(station)) {
+    return res.status(400).json({ error: 'Invalid station code' });
+  }
+
   const cache = metarCache[station] || { data: null, ts: 0 };
-  const now = Date.now();
-
-  if (cache.data && now - cache.ts < 60_000) {
+  if (cache.data && Date.now() - cache.ts < 60_000) {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify(cache.data));
   }
@@ -16,9 +32,7 @@ export default async function handler(req, res) {
   const url = `https://aviationweather.gov/api/data/metar?ids=${station}&format=json&taf=false&hours=48`;
 
   try {
-    const upstream = await fetch(url, {
-      headers: { 'User-Agent': 'polydash/1.0' },
-    });
+    const upstream = await fetch(url, { headers: { 'User-Agent': 'polydash/1.0' } });
     if (!upstream.ok) throw new Error('HTTP ' + upstream.status);
     const json = await upstream.json();
     metarCache[station] = { data: json, ts: Date.now() };
