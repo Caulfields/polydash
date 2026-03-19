@@ -1,0 +1,2497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polymarket — London Temperature</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0f14;
+      --surface:  #161921;
+      --surface2: #1c2030;
+      --border:   #252836;
+      --muted:    #4a5068;
+      --text:     #e2e6f0;
+      --dim:      #8b92a9;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #f59e0b;
+      --blue:     #6366f1;
+      --accent:   #7c3aed;
+      --orange:   #f97316;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      width: 28px; height: 28px;
+      background: var(--accent);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 14px;
+      flex-shrink: 0;
+      color: #fff;
+    }
+
+    header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ws-status {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--dim);
+      flex-shrink: 0;
+    }
+    .ws-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    .ws-dot.connected   { background: var(--green); }
+    .ws-dot.connecting  { background: var(--yellow); animation: blink 1s infinite; }
+    .ws-dot.error       { background: var(--red); }
+
+    @keyframes blink {
+      0%,100% { opacity:1; } 50% { opacity:0.3; }
+    }
+
+    /* ── Main layout ── */
+    .main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 380px 1fr 280px 280px;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    /* ── Left panel ── */
+    .left-panel {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── City tabs ── */
+    .city-tabs {
+      display: flex;
+      gap: 2px;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 2px;
+    }
+    .city-tab {
+      padding: 3px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: background 0.15s, color 0.15s;
+    }
+    .city-tab:hover { color: var(--dim); }
+    .city-tab.active {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    /* ── Day tabs ── */
+    .day-tabs {
+      display: flex;
+      gap: 2px;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 2px;
+    }
+    .day-tab {
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+    .day-tab:hover { color: var(--dim); }
+    .day-tab.active {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+
+    .panel-meta {
+      font-size: 11px;
+      color: var(--dim);
+    }
+
+    .sort-select {
+      background: transparent;
+      border: none;
+      color: var(--dim);
+      font-size: 11px;
+      cursor: pointer;
+      outline: none;
+    }
+    .sort-select option { background: var(--surface2); }
+
+    /* ── Compact table ── */
+    .table-scroll {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .table-scroll::-webkit-scrollbar { width: 4px; }
+    .table-scroll::-webkit-scrollbar-track { background: transparent; }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    thead th {
+      position: sticky; top: 0;
+      background: var(--surface);
+      padding: 7px 12px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      z-index: 1;
+    }
+    thead th.r { text-align: right; }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(37,40,54,0.6);
+      transition: background 0.12s;
+      cursor: default;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.025); }
+
+    td {
+      padding: 7px 12px;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    td.r { text-align: right; }
+
+    .outcome-name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    /* probability bar inline */
+    .prob-cell {
+      width: 140px;
+    }
+    .prob-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .prob-top {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .prob-val {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .prob-bar {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+
+    .last-price {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* eliminated rows */
+    tr.row-eliminated {
+      background: rgba(99,102,241,0.07);
+    }
+    tr.row-eliminated:hover {
+      background: rgba(99,102,241,0.13);
+    }
+    tr.row-eliminated .outcome-name {
+      color: var(--blue);
+      opacity: 0.8;
+    }
+    tr.row-eliminated .last-price {
+      opacity: 0.5;
+    }
+
+    /* row flash */
+    @keyframes fg { 0% { background: rgba(34,197,94,0.18); } 100% { background: transparent; } }
+    @keyframes fr { 0% { background: rgba(239,68,68,0.18);  } 100% { background: transparent; } }
+    tr.fg { animation: fg 0.7s ease; }
+    tr.fr { animation: fr 0.7s ease; }
+
+    /* skeleton */
+    .sk {
+      background: linear-gradient(90deg, var(--border) 25%, rgba(255,255,255,0.04) 50%, var(--border) 75%);
+      background-size: 200% 100%;
+      animation: sh 1.4s infinite;
+      border-radius: 3px;
+      height: 11px;
+    }
+    @keyframes sh { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* ── Right panel ── */
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chart-header {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .chart-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      flex: 1;
+    }
+
+    .temp-now {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--orange);
+      letter-spacing: -0.5px;
+    }
+    .temp-unit { font-size: 13px; color: var(--dim); margin-left: 1px; }
+
+    .metar-raw {
+      font-size: 10px;
+      color: var(--muted);
+      font-family: monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 340px;
+    }
+
+    .chart-wrap {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      padding: 12px 16px 8px;
+    }
+
+    canvas#tempChart {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    canvas#tempChartOverlay {
+      position: absolute;
+      top: 12px; left: 16px; right: 16px; bottom: 8px;
+      width: calc(100% - 32px) !important;
+      height: calc(100% - 20px) !important;
+      pointer-events: all;
+      cursor: crosshair;
+    }
+
+    /* ── Chart tooltip ── */
+    .chart-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.1s;
+      z-index: 10;
+    }
+    .chart-tooltip.visible { opacity: 1; }
+    .chart-tooltip-time { color: var(--dim); font-size: 11px; }
+    .chart-tooltip-temp { font-weight: 700; color: var(--orange); font-size: 14px; }
+
+
+    .chart-footer {
+      padding: 6px 16px 10px;
+      display: flex;
+      gap: 20px;
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .cf-item {
+      display: flex; flex-direction: column; gap: 1px;
+    }
+    .cf-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .cf-value { font-size: 12px; font-weight: 600; }
+
+    .metar-updated {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--muted);
+      align-self: flex-end;
+    }
+
+    /* outcome threshold lines legend */
+    .legend-wrap {
+      padding: 0 16px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 10px; color: var(--dim);
+    }
+    .legend-dot {
+      width: 8px; height: 2px; border-radius: 1px;
+    }
+
+    /* ── User positions panel ── */
+    .user-panel {
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 260px;
+      max-width: 300px;
+    }
+
+    .user-panel-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .user-avatar {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; color: #fff;
+      flex-shrink: 0;
+    }
+
+    .user-name {
+      font-size: 12px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .user-pnl {
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .user-pnl.pos { color: var(--green); }
+    .user-pnl.neg { color: var(--red); }
+
+    .user-meta {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 6px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .user-meta-item { display: flex; flex-direction: column; gap: 1px; }
+    .user-meta-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .user-meta-val { font-size: 11px; font-weight: 600; color: var(--dim); }
+
+    .user-positions-scroll {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .user-positions-scroll::-webkit-scrollbar { width: 4px; }
+    .user-positions-scroll::-webkit-scrollbar-track { background: transparent; }
+    .user-positions-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .user-pos-row {
+      padding: 8px 14px;
+      border-bottom: 1px solid rgba(37,40,54,0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      transition: background 0.12s;
+    }
+    .user-pos-row:hover { background: rgba(255,255,255,0.025); }
+    .user-pos-row:last-child { border-bottom: none; }
+
+    .user-pos-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .user-pos-title {
+      font-size: 11px;
+      color: var(--text);
+      font-weight: 500;
+      flex: 1;
+      line-height: 1.4;
+    }
+
+    .user-pos-outcome {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .user-pos-outcome.yes { background: rgba(34,197,94,0.15); color: var(--green); }
+    .user-pos-outcome.no  { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+    .user-pos-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--dim);
+    }
+
+    .user-pos-price {
+      font-weight: 600;
+      font-size: 11px;
+    }
+
+    .user-pos-pnl {
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .user-pos-pnl.pos { color: var(--green); }
+    .user-pos-pnl.neg { color: var(--red); }
+
+    .user-pos-bar {
+      height: 2px;
+      background: var(--border);
+      border-radius: 1px;
+      overflow: hidden;
+      margin-top: 2px;
+    }
+    .user-pos-bar-fill {
+      height: 100%;
+      border-radius: 1px;
+      transition: width 0.4s;
+    }
+
+    .user-updated {
+      padding: 5px 14px;
+      font-size: 10px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* ── Paper trading panel ── */
+    .paper-panel {
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 260px;
+      max-width: 300px;
+    }
+
+    .paper-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .paper-title {
+      font-size: 12px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .paper-new-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .paper-new-btn:hover { background: #6d28d9; }
+    .paper-new-btn.cancel { background: var(--surface2); color: var(--dim); border: 1px solid var(--border); }
+    .paper-new-btn.cancel:hover { color: var(--text); }
+
+    /* form */
+    .paper-form {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+      background: var(--surface2);
+    }
+    .paper-form.hidden { display: none; }
+
+    .pf-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .pf-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .pf-select, .pf-input {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 8px;
+      border-radius: 5px;
+      font-size: 12px;
+      width: 100%;
+      outline: none;
+    }
+    .pf-select:focus, .pf-input:focus { border-color: var(--accent); }
+    .pf-select option { background: var(--surface2); }
+
+    .pf-side-row {
+      display: flex;
+      gap: 6px;
+    }
+    .pf-side-btn {
+      flex: 1;
+      padding: 5px 0;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      transition: all 0.12s;
+    }
+    .pf-side-btn.yes.active { background: rgba(34,197,94,0.15); color: var(--green); border-color: var(--green); }
+    .pf-side-btn.no.active  { background: rgba(239,68,68,0.15);  color: var(--red);   border-color: var(--red); }
+    .pf-side-btn:hover { color: var(--text); }
+
+    .pf-entry-row {
+      display: flex;
+      gap: 6px;
+    }
+    .pf-entry-row .pf-input { flex: 1; }
+
+    .pf-place-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 7px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.15s;
+    }
+    .pf-place-btn:hover { background: #6d28d9; }
+
+    /* scroll body */
+    .paper-body {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .paper-body::-webkit-scrollbar { width: 4px; }
+    .paper-body::-webkit-scrollbar-track { background: transparent; }
+    .paper-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .paper-section-label {
+      padding: 6px 14px 4px;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      flex-shrink: 0;
+    }
+
+    /* open trade card */
+    .paper-trade-card {
+      margin: 0 10px 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 9px 11px;
+      flex-shrink: 0;
+    }
+
+    .ptc-top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+    .ptc-label {
+      font-size: 12px;
+      font-weight: 600;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ptc-day {
+      font-size: 9px;
+      color: var(--muted);
+    }
+    .ptc-side {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .ptc-side.yes { background: rgba(34,197,94,0.15); color: var(--green); }
+    .ptc-side.no  { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+    .ptc-bar {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 5px;
+    }
+    .ptc-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
+
+    .ptc-prices {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--dim);
+      margin-bottom: 4px;
+    }
+    .ptc-cur-price { font-weight: 600; }
+
+    .ptc-pnl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .ptc-values { font-size: 10px; color: var(--dim); }
+    .ptc-pnl { font-size: 11px; font-weight: 700; }
+    .ptc-pnl.pos { color: var(--green); }
+    .ptc-pnl.neg { color: var(--red); }
+
+    .ptc-close-btn {
+      margin-top: 7px;
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--dim);
+      padding: 4px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .ptc-close-btn:hover { color: var(--text); border-color: var(--dim); }
+
+    /* closed trade row */
+    .paper-closed-row {
+      padding: 6px 14px;
+      border-bottom: 1px solid rgba(37,40,54,0.5);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+    }
+    .paper-closed-row:last-child { border-bottom: none; }
+    .pcr-label { flex: 1; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pcr-side { font-weight: 700; flex-shrink: 0; }
+    .pcr-side.yes { color: var(--green); }
+    .pcr-side.no  { color: var(--red); }
+    .pcr-pnl { font-weight: 700; flex-shrink: 0; }
+    .pcr-pnl.pos { color: var(--green); }
+    .pcr-pnl.neg { color: var(--red); }
+    .pcr-del {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 12px; padding: 0; flex-shrink: 0;
+    }
+    .pcr-del:hover { color: var(--red); }
+
+    .paper-empty {
+      padding: 16px 14px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    /* error */
+    .err { padding: 20px; text-align: center; color: var(--dim); }
+    .retry-btn {
+      background: var(--accent); color: #fff; border: none;
+      padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 12px; margin-top: 8px;
+    }
+
+    @media (max-width: 1280px) {
+      .main { grid-template-columns: 380px 1fr 280px; }
+      .paper-panel { display: none; }
+    }
+    @media (max-width: 1000px) {
+      .main { grid-template-columns: 380px 1fr; }
+      .user-panel { display: none; }
+      .paper-panel { display: none; }
+    }
+    @media (max-width: 750px) {
+      .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .left-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: 50vh; }
+    }
+
+    /* ── Archive drawer ── */
+    .archive-drawer {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      z-index: 200;
+      transform: translateY(100%);
+      transition: transform 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      max-height: 55vh;
+    }
+    .archive-drawer.open { transform: translateY(0); }
+
+    .archive-drawer-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .archive-drawer-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      flex: 1;
+    }
+    .archive-count {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .archive-close-btn {
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 2px 4px;
+    }
+    .archive-close-btn:hover { color: var(--text); }
+
+    .archive-body {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .archive-body::-webkit-scrollbar { height: 4px; }
+    .archive-body::-webkit-scrollbar-track { background: transparent; }
+    .archive-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .archive-empty {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 10px 0;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* timeline spine */
+    .archive-timeline {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      position: relative;
+      min-width: max-content;
+    }
+    .archive-timeline::before {
+      content: '';
+      position: absolute;
+      top: 20px;
+      left: 16px;
+      right: 16px;
+      height: 1px;
+      background: var(--border);
+      z-index: 0;
+    }
+
+    .snapshot-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+      z-index: 1;
+      min-width: 130px;
+      max-width: 150px;
+    }
+    .snapshot-card + .snapshot-card {
+      margin-left: 16px;
+    }
+
+    .snap-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--surface);
+      box-shadow: 0 0 0 1px var(--accent);
+      flex-shrink: 0;
+    }
+
+    .snap-body {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      width: 100%;
+    }
+
+    .snap-time {
+      font-size: 11px;
+      color: var(--dim);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .snap-delete {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      padding: 0;
+    }
+    .snap-delete:hover { color: var(--red); }
+
+    .snap-temp {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--orange);
+      margin-bottom: 6px;
+    }
+
+    .snap-positions {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .snap-position {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      gap: 6px;
+    }
+    .snap-pos-label {
+      color: var(--dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 80px;
+    }
+    .snap-pos-pct {
+      font-weight: 600;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    /* snapshot button in header */
+    .snap-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 4px 12px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .snap-btn:hover { background: #6d28d9; }
+
+    .archive-btn {
+      background: var(--surface2);
+      color: var(--dim);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .archive-btn:hover { color: var(--text); background: var(--border); }
+    .archive-btn.has-snaps { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">P</div>
+  <div class="city-tabs" id="cityTabs">
+    <button class="city-tab active" id="cityTab-london" onclick="switchCity('london')">London</button>
+    <button class="city-tab" id="cityTab-paris" onclick="switchCity('paris')">Paris</button>
+  </div>
+  <h1 id="pageTitle" style="flex:1;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Loading…</h1>
+  <button class="snap-btn" onclick="takeSnapshot()" title="Save current snapshot">&#9679; Snapshot</button>
+  <button class="archive-btn" id="archiveBtn" onclick="toggleArchive()" title="View archive">&#9776; Archive</button>
+  <div class="ws-status">
+    <div class="ws-dot connecting" id="wsDot"></div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- ── Left: positions table ── -->
+  <div class="left-panel">
+    <div class="panel-header">
+      <div class="day-tabs">
+        <button class="day-tab active" id="tabToday" onclick="switchDay(0)">—</button>
+        <button class="day-tab tomorrow-tab" id="tabTomorrow" onclick="switchDay(1)">—</button>
+      </div>
+
+      <select class="sort-select" id="sortSel">
+        <option value="threshold">By temperature</option>
+        <option value="price_desc">Price ↓</option>
+        <option value="price_asc">Price ↑</option>
+      </select>
+      <span class="panel-meta" id="lastUpd">—</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Outcome</th>
+            <th class="r">Yes</th>
+            <th class="r">Last</th>
+          </tr>
+        </thead>
+        <tbody id="mktBody">
+          <tr><td><div class="sk" style="width:70px"></div></td><td></td><td></td></tr>
+          <tr><td><div class="sk" style="width:50px"></div></td><td></td><td></td></tr>
+          <tr><td><div class="sk" style="width:80px"></div></td><td></td><td></td></tr>
+          <tr><td><div class="sk" style="width:60px"></div></td><td></td><td></td></tr>
+          <tr><td><div class="sk" style="width:75px"></div></td><td></td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Right: METAR chart ── -->
+  <div class="right-panel">
+    <div class="chart-header">
+      <span class="chart-title" id="chartTitle">EGLC Temperature Today</span>
+      <span class="temp-now" id="tempNow">—<span class="temp-unit">°C</span></span>
+      <span id="londonTime" style="font-size:13px;font-weight:600;color:var(--dim);flex-shrink:0">—</span>
+      <span class="metar-raw" id="metarRaw">loading…</span>
+    </div>
+    <div class="chart-wrap">
+        <canvas id="tempChart"></canvas>
+        <canvas id="tempChartOverlay"></canvas>
+        <div class="chart-tooltip" id="chartTooltip">
+          <div class="chart-tooltip-time" id="ttTime"></div>
+          <div class="chart-tooltip-temp" id="ttTemp"></div>
+
+        </div>
+    </div>
+    <div class="legend-wrap" id="chartLegend"></div>
+    <div class="chart-footer">
+      <div class="cf-item">
+        <span class="cf-label">Min today</span>
+        <span class="cf-value" id="cfMin">—</span>
+      </div>
+      <div class="cf-item">
+        <span class="cf-label">Max today</span>
+        <span class="cf-value" id="cfMax" style="color:var(--orange)">—</span>
+      </div>
+      <div class="cf-item">
+        <span class="cf-label">Dew point</span>
+        <span class="cf-value" id="cfDew">—</span>
+      </div>
+      <div class="cf-item">
+        <span class="cf-label">Wind</span>
+        <span class="cf-value" id="cfWind">—</span>
+      </div>
+      <span class="metar-updated" id="metarUpd">—</span>
+    </div>
+  </div>
+
+  <!-- ── Right: user positions ── -->
+  <div class="user-panel">
+    <div class="user-panel-header">
+      <div class="user-avatar">W</div>
+      <span class="user-name" id="userName">wishaaaa</span>
+      <span class="user-pnl" id="userPnl">—</span>
+    </div>
+    <div class="user-meta">
+      <div class="user-meta-item">
+        <span class="user-meta-label">Value</span>
+        <span class="user-meta-val" id="userValue">—</span>
+      </div>
+      <div class="user-meta-item">
+        <span class="user-meta-label">Positions</span>
+        <span class="user-meta-val" id="userPosCount">—</span>
+      </div>
+    </div>
+    <div class="user-positions-scroll" id="userPositions">
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">Loading…</div>
+    </div>
+    <div class="user-updated" id="userUpdated">—</div>
+  </div>
+
+  <!-- ── Paper trading panel ── -->
+  <div class="paper-panel">
+    <div class="paper-header">
+      <span class="paper-title">Paper Trading</span>
+      <button class="paper-new-btn" id="paperNewBtn" onclick="togglePaperForm()">+ New</button>
+    </div>
+
+    <!-- Trade form -->
+    <div class="paper-form hidden" id="paperForm">
+      <div class="pf-row">
+        <span class="pf-label">Outcome</span>
+        <select class="pf-select" id="pfOutcome" onchange="pfUpdateEntryPrice()"></select>
+      </div>
+      <div class="pf-row">
+        <span class="pf-label">Side</span>
+        <div class="pf-side-row">
+          <button class="pf-side-btn yes active" id="pfYes" onclick="pfSetSide('yes')">YES</button>
+          <button class="pf-side-btn no" id="pfNo" onclick="pfSetSide('no')">NO</button>
+        </div>
+      </div>
+      <div class="pf-row">
+        <span class="pf-label">Amount ($)</span>
+        <input class="pf-input" id="pfAmount" type="number" min="1" step="1" value="10" />
+      </div>
+      <div class="pf-row">
+        <span class="pf-label">Entry price (¢)</span>
+        <input class="pf-input" id="pfEntry" type="number" min="1" max="99" step="0.1" />
+      </div>
+      <button class="pf-place-btn" onclick="pfPlaceTrade()">Place Trade</button>
+    </div>
+
+    <!-- Positions + closed history -->
+    <div class="paper-body" id="paperBody">
+      <div class="paper-empty">No paper trades yet.<br>Click "+ New" to start.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Archive drawer ── -->
+<div class="archive-drawer" id="archiveDrawer">
+  <div class="archive-drawer-header">
+    <span class="archive-drawer-title">Snapshot Archive</span>
+    <span class="archive-count" id="archiveCount"></span>
+    <button class="archive-close-btn" onclick="toggleArchive()">&#x2715;</button>
+  </div>
+  <div class="archive-body" id="archiveBody">
+    <div class="archive-empty">No snapshots yet — click "Snapshot" to save the current state.</div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════════════════ */
+const GAMMA_API        = '/api/gamma';
+const CLOB_API         = '/api/clob';
+const WSS_URL          = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
+const CLOB_REFRESH_MS  = 15000;
+const METAR_REFRESH_MS = 120000;
+
+// City definitions
+const CITIES = {
+  london: {
+    id:         'london',
+    name:       'London',
+    metar:      'EGLC',
+    timezone:   'Europe/London',
+    seriesSlug: 'london-daily-weather',
+    slugPrefix: 'highest-temperature-in-london-on',
+    archiveKey: 'polydash_archive_london',
+  },
+  paris: {
+    id:         'paris',
+    name:       'Paris',
+    metar:      'LFPG',
+    timezone:   'Europe/Paris',
+    seriesSlug: 'paris-daily-weather',
+    slugPrefix: 'highest-temperature-in-paris-on',
+    archiveKey: 'polydash_archive_paris',
+  },
+};
+
+let activeCity = CITIES.london;  // currently selected city
+
+// Date helpers — use active city's timezone
+function cityDateParts(offsetDays = 0) {
+  const now = new Date(Date.now() + offsetDays * 86400000);
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: activeCity.timezone,
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+  return {
+    day:   parseInt(parts.day, 10),
+    month: parts.month.toLowerCase(),
+    year:  parseInt(parts.year, 10),
+  };
+}
+
+function dateSlug(offsetDays) {
+  const p = cityDateParts(offsetDays);
+  return `${activeCity.slugPrefix}-${p.month}-${p.day}-${p.year}`;
+}
+
+function londonDateLabel(offsetDays) {
+  const p = cityDateParts(offsetDays);
+  const mon = p.month.charAt(0).toUpperCase() + p.month.slice(1, 3);
+  return `${p.day} ${mon}`;
+}
+
+let currentDay = cityDateParts(0).day;
+let viewDay    = 0;  // 0 = today, 1 = tomorrow
+
+// Per-day state: dayState[0] = today, dayState[1] = tomorrow
+const makeDayState = () => ({ markets: [], prices: {}, prevPrices: {}, loaded: false, clobTimer: null });
+let dayState = [ makeDayState(), makeDayState() ];
+
+/* ═══════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════ */
+let ws = null, wsRetryDelay = 2000;
+
+// Convenience accessors for the currently viewed day
+const getMarkets    = () => dayState[viewDay].markets;
+const getPrices     = () => dayState[viewDay].prices;
+const getPrevPrices = () => dayState[viewDay].prevPrices;
+let metarToday     = [];
+let metarYesterday = [];
+let metarObsTime   = null;
+
+/* ═══════════════════════════════════════════════════════════
+   UTILS
+═══════════════════════════════════════════════════════════ */
+const pct  = v => v == null ? '—' : (v * 100).toFixed(v < 0.01 ? 2 : 1) + '%';
+const deg  = v => v == null ? '—' : v.toFixed(0) + '°C';
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 5)  return 'now';
+  if (s < 60) return s + 's ago';
+  return Math.floor(s / 60) + 'm ago';
+}
+let lastUpdTs = null;
+function markUpdated() {
+  lastUpdTs = Date.now();
+  document.getElementById('lastUpd').textContent = 'now';
+}
+setInterval(() => {
+  if (lastUpdTs) document.getElementById('lastUpd').textContent = timeAgo(lastUpdTs);
+}, 5000);
+
+function fmtMetarAge(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60)  return 'updated just now';
+  const m = Math.floor(s / 60);
+  return `updated ${m} minute${m === 1 ? '' : 's'} ago`;
+}
+setInterval(() => {
+  if (metarObsTime) document.getElementById('metarUpd').textContent = fmtMetarAge(metarObsTime);
+}, 30000);
+
+function tickLondonClock() {
+  const t = new Date().toLocaleTimeString('en-GB', { timeZone: activeCity.timezone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('londonTime').textContent = t + ' ' + activeCity.name.slice(0,3).toUpperCase();
+}
+tickLondonClock();
+setInterval(tickLondonClock, 1000);
+
+function setWs(state) {
+  document.getElementById('wsDot').className = 'ws-dot ' + state;
+
+}
+
+/* ═══════════════════════════════════════════════════════════
+   POLYMARKET — load markets
+═══════════════════════════════════════════════════════════ */
+async function loadMarketsForDay(offset) {
+  const slug = dateSlug(offset);
+  const state = dayState[offset];
+
+  // Try slug directly first
+  let event = null;
+  const direct = await fetch(`${GAMMA_API}/events?slug=${slug}`);
+  if (direct.ok) {
+    const arr = await direct.json();
+    event = arr[0] ?? null;
+  }
+  if (!event) {
+    // Fall back to series search
+    const seriesRes = await fetch(`${GAMMA_API}/events?seriesSlug=${SERIES_SLUG}&limit=5&active=true`);
+    if (seriesRes.ok) {
+      const arr = await seriesRes.json();
+      const targetDay = londonDateParts(offset).day;
+      event = arr.find(e => new Date(e.endDate).getDate() === targetDay) ?? null;
+    }
+  }
+  if (!event) throw new Error(`No event found for day +${offset}`);
+
+  state.markets = event.markets.map(m => {
+    const tids = JSON.parse(m.clobTokenIds);
+    const ops  = JSON.parse(m.outcomePrices);
+    return {
+      id: m.id,
+      label: m.groupItemTitle,
+      threshold: Number(m.groupItemThreshold),
+      yesTokenId: tids[0],
+      outcomePriceYes: parseFloat(ops[0]),
+      bestBid: m.bestBid ?? null,
+      bestAsk: m.bestAsk ?? null,
+      lastTradePrice: m.lastTradePrice ?? null,
+    };
+  });
+
+  for (const m of state.markets) {
+    state.prices[m.yesTokenId] = {
+      bestBid: m.bestBid,
+      bestAsk: m.bestAsk,
+      lastTrade: m.lastTradePrice,
+    };
+  }
+
+  state.loaded = true;
+
+  // Start REST polling for this day
+  if (state.clobTimer) clearInterval(state.clobTimer);
+  state.clobTimer = setInterval(() => refreshClobPricesForDay(offset), CLOB_REFRESH_MS);
+
+  // Update UI if this is the currently viewed day
+  if (offset === viewDay) {
+    applyDayToUI(offset, event.title);
+  }
+
+  // WS only tracks today (offset 0) for live updates
+  if (offset === 0) {
+    document.title = event.title + ' — Polymarket';
+    document.getElementById('pageTitle').textContent = event.title;
+    subscribeWS();
+  }
+
+  return event;
+}
+
+function applyDayToUI(offset, title) {
+  document.getElementById('mktBody').innerHTML = '';
+  if (offset === 0) {
+    document.title = title + ' — Polymarket';
+    document.getElementById('pageTitle').textContent = title;
+  }
+  markUpdated();
+  renderTable();
+  pfPopulateOutcomes(); // refresh dropdown with latest markets
+}
+
+async function loadMarkets() {
+  // Load today always; load tomorrow in background
+  const todayEvent = await loadMarketsForDay(0);
+  updateTabLabels();
+  // Load tomorrow silently (don't block or throw on failure)
+  loadMarketsForDay(1).then(updateTabLabels).catch(() => {
+    document.getElementById('tabTomorrow').textContent = londonDateLabel(1) + ' —';
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CLOB REST refresh
+═══════════════════════════════════════════════════════════ */
+async function refreshClobPricesForDay(offset) {
+  const state = dayState[offset];
+  if (!state.markets.length) return;
+  try {
+    const ids  = state.markets.map(m => m.yesTokenId);
+    const body = JSON.stringify({ token_ids: ids });
+    const hdrs = { 'Content-Type': 'application/json' };
+
+    const [mRes, lRes] = await Promise.all([
+      fetch(`${CLOB_API}/midpoints`,         { method:'POST', headers:hdrs, body }),
+      fetch(`${CLOB_API}/last-trade-prices`, { method:'POST', headers:hdrs, body }),
+    ]);
+
+    if (mRes.ok) {
+      const mids = await mRes.json();
+      for (const it of (Array.isArray(mids) ? mids : (mids.mid ?? []))) {
+        if (!state.prices[it.token_id]) state.prices[it.token_id] = {};
+        state.prices[it.token_id].mid = parseFloat(it.mid ?? it.price);
+      }
+    }
+    if (lRes.ok) {
+      const trades = await lRes.json();
+      for (const it of (Array.isArray(trades) ? trades : (trades.last_trade_price ?? []))) {
+        if (!state.prices[it.token_id]) state.prices[it.token_id] = {};
+        state.prices[it.token_id].lastTrade = parseFloat(it.price);
+      }
+    }
+    if (offset === viewDay) { renderTable(); markUpdated(); }
+  } catch(e) { console.warn(`CLOB refresh day+${offset}:`, e.message); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WEBSOCKET
+═══════════════════════════════════════════════════════════ */
+function subscribeWS() {
+  if (ws) { ws.onclose = null; ws.close(); }
+  setWs('connecting');
+  ws = new WebSocket(WSS_URL);
+
+  ws.onopen = () => {
+    setWs('connected');
+    wsRetryDelay = 2000;
+    ws.send(JSON.stringify({
+      assets_ids: dayState[0].markets.map(m => m.yesTokenId),
+      type: 'market',
+      custom_feature_enabled: true,
+    }));
+    ws._ping = setInterval(() => ws.readyState === 1 && ws.send('PING'), 10000);
+  };
+
+  ws.onmessage = e => {
+    if (e.data === 'PONG') return;
+    try { handleWsMsg(JSON.parse(e.data)); } catch(_) {}
+  };
+
+  ws.onerror = () => setWs('error');
+  ws.onclose = () => {
+    clearInterval(ws._ping);
+    setWs('error');
+    setTimeout(subscribeWS, wsRetryDelay);
+    wsRetryDelay = Math.min(wsRetryDelay * 1.5, 30000);
+  };
+}
+
+function handleWsMsg(msg) {
+  // WS only carries today (offset 0) data
+  const p0 = dayState[0].prices;
+  const changed = [];
+
+  if (msg.event_type === 'price_change') {
+    for (const pc of (msg.price_changes ?? [])) {
+      if (!p0[pc.asset_id]) p0[pc.asset_id] = {};
+      if (pc.side === 'BUY')  p0[pc.asset_id].bestBid = parseFloat(pc.best_bid  ?? pc.price);
+      if (pc.side === 'SELL') p0[pc.asset_id].bestAsk = parseFloat(pc.best_ask  ?? pc.price);
+      changed.push(pc.asset_id);
+    }
+  } else if (msg.event_type === 'last_trade_price') {
+    if (!p0[msg.asset_id]) p0[msg.asset_id] = {};
+    p0[msg.asset_id].lastTrade = parseFloat(msg.price);
+    changed.push(msg.asset_id);
+  } else if (msg.event_type === 'best_bid_ask') {
+    if (!p0[msg.asset_id]) p0[msg.asset_id] = {};
+    p0[msg.asset_id].bestBid = parseFloat(msg.best_bid);
+    p0[msg.asset_id].bestAsk = parseFloat(msg.best_ask);
+    changed.push(msg.asset_id);
+  } else if (msg.event_type === 'book') {
+    if (!p0[msg.asset_id]) p0[msg.asset_id] = {};
+    const bids = msg.bids ?? [], asks = msg.asks ?? [];
+    if (bids.length) p0[msg.asset_id].bestBid = parseFloat(bids[bids.length-1].price);
+    if (asks.length) p0[msg.asset_id].bestAsk = parseFloat(asks[0].price);
+    changed.push(msg.asset_id);
+  }
+
+  // Only re-render if viewing today
+  if (changed.length && viewDay === 0) { renderTable(changed); markUpdated(); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TABLE RENDER
+═══════════════════════════════════════════════════════════ */
+function getMid(m) {
+  const p = getPrices()[m.yesTokenId] ?? {};
+  const b = p.bestBid ?? m.bestBid, a = p.bestAsk ?? m.bestAsk;
+  if (b != null && a != null) return (b + a) / 2;
+  return p.mid ?? p.lastTrade ?? m.lastTradePrice ?? m.outcomePriceYes ?? 0;
+}
+
+function renderTable(changedIds) {
+  const sort = document.getElementById('sortSel').value;
+  const sorted = [...getMarkets()].sort((a, b) =>
+    sort === 'price_desc' ? getMid(b) - getMid(a) :
+    sort === 'price_asc'  ? getMid(a) - getMid(b) :
+    a.threshold - b.threshold
+  );
+
+  const tbody = document.getElementById('mktBody');
+
+  for (const m of sorted) {
+    const p    = getPrices()[m.yesTokenId] ?? {};
+    const bid  = p.bestBid  ?? m.bestBid;
+    const ask  = p.bestAsk  ?? m.bestAsk;
+    const last = p.lastTrade ?? m.lastTradePrice;
+    const mid  = getMid(m);
+
+    const pp      = getPrevPrices();
+    const prevMid = pp[m.yesTokenId];
+    const moved   = prevMid != null && Math.abs(mid - prevMid) > 0.00005;
+    const up      = moved && mid > prevMid;
+    pp[m.yesTokenId] = mid;
+
+    // Eliminated rows only make sense for today (we have METAR data)
+    const todayMax   = viewDay === 0 && metarToday.length ? Math.max(...metarToday.map(d => d.temp)) : -Infinity;
+    const threshTemp = THRESH_TEMPS[m.threshold] ?? 99;
+    const eliminated = viewDay === 0 && m.threshold < THRESH_TEMPS.length - 1 && todayMax > threshTemp;
+
+    const color = eliminated ? 'var(--blue)' :
+                  mid > 0.5  ? 'var(--green)' :
+                  mid > 0.1  ? 'var(--yellow)' : 'var(--red)';
+    const barW  = Math.min(mid * 100, 100).toFixed(1);
+
+    let tr = document.getElementById('r' + m.id);
+    if (!tr) {
+      tr = document.createElement('tr');
+      tr.id = 'r' + m.id;
+      tbody.appendChild(tr);
+    }
+
+    tr.classList.toggle('row-eliminated', eliminated);
+
+    tr.innerHTML = `
+      <td><span class="outcome-name">${m.label}</span></td>
+      <td class="r prob-cell">
+        <div class="prob-wrap">
+          <div class="prob-top">
+            <span class="prob-val" style="color:${color}">${pct(mid)}</span>
+          </div>
+          <div class="prob-bar"><div class="prob-bar-fill" style="width:${barW}%;background:${color}"></div></div>
+        </div>
+      </td>
+      <td class="r"><span class="last-price" style="color:var(--dim)">${last != null ? pct(last) : '—'}</span></td>
+    `;
+
+    if (moved && changedIds?.includes(m.yesTokenId)) {
+      tr.classList.remove('fg','fr');
+      void tr.offsetWidth;
+      tr.classList.add(up ? 'fg' : 'fr');
+      setTimeout(() => tr.classList.remove('fg','fr'), 750);
+    }
+  }
+
+  // keep DOM order matching sort
+  for (const m of sorted) {
+    const row = document.getElementById('r' + m.id);
+    if (row) tbody.appendChild(row);
+  }
+
+  // update paper trade values live
+  renderPaperTrades();
+}
+
+document.getElementById('sortSel').addEventListener('change', () => renderTable());
+
+/* ── Day tab switching ── */
+function updateTabLabels() {
+  document.getElementById('tabToday').textContent    = londonDateLabel(0);
+  document.getElementById('tabTomorrow').textContent = londonDateLabel(1) +
+    (dayState[1].loaded ? '' : ' …');
+}
+
+function switchDay(offset) {
+  if (viewDay === offset) return;
+  viewDay = offset;
+
+  document.getElementById('tabToday').classList.toggle('active', offset === 0);
+  document.getElementById('tabTomorrow').classList.toggle('active', offset === 1);
+
+  document.getElementById('mktBody').innerHTML = '';
+
+  if (!dayState[offset].loaded) {
+    // Still loading — show skeleton
+    document.getElementById('mktBody').innerHTML =
+      '<tr><td><div class="sk" style="width:70px"></div></td><td></td><td></td></tr>'.repeat(5);
+    return;
+  }
+
+  renderTable();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   METAR
+═══════════════════════════════════════════════════════════ */
+// City-aware date string "YYYY-MM-DD"
+function cityDateStr(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: activeCity.timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
+}
+
+async function loadMetar() {
+  try {
+    const res = await fetch(`/api/metar?station=${activeCity.metar}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const raw = await res.json();
+
+    const obs = raw
+      .filter(r => r.temp != null)
+      .map(r => ({
+        time:  new Date(r.reportTime),
+        temp:  r.temp,
+        dewp:  r.dewp,
+        wspd:  r.wspd,
+        wdir:  r.wdir,
+        rawOb: r.rawOb,
+      }))
+      .sort((a, b) => a.time - b.time);
+
+    const todayStr     = cityDateStr(new Date());
+    const yesterdayStr = cityDateStr(new Date(Date.now() - 86400000));
+
+    metarToday     = obs.filter(d => cityDateStr(d.time) === todayStr);
+    metarYesterday = obs.filter(d => cityDateStr(d.time) === yesterdayStr);
+
+    metarObsTime = metarToday.length
+      ? metarToday[metarToday.length - 1].time.getTime()
+      : Date.now();
+
+    document.getElementById('chartTitle').textContent = activeCity.metar + ' Temperature Today';
+    updateMetarUI();
+    drawChart();
+    document.getElementById('metarUpd').textContent = fmtMetarAge(metarObsTime);
+  } catch(e) {
+    console.warn('METAR fetch:', e.message);
+    document.getElementById('metarRaw').textContent = 'METAR unavailable';
+  }
+}
+
+function updateMetarUI() {
+  if (!metarToday.length) return;
+  const latest = metarToday[metarToday.length - 1];
+
+  document.getElementById('tempNow').innerHTML =
+    latest.temp + '<span class="temp-unit">°C</span>';
+  document.getElementById('metarRaw').textContent = latest.rawOb;
+  document.getElementById('cfDew').textContent = latest.dewp != null ? latest.dewp + '°C' : '—';
+  document.getElementById('cfWind').textContent =
+    (latest.wdir === 'VRB' ? 'VRB' : (latest.wdir != null ? latest.wdir + '°' : '—')) +
+    (latest.wspd != null ? ' ' + latest.wspd + 'kt' : '');
+
+  const temps = metarToday.map(d => d.temp);
+  document.getElementById('cfMin').textContent = Math.min(...temps) + '°C';
+  document.getElementById('cfMax').textContent = Math.max(...temps) + '°C';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CANVAS CHART
+═══════════════════════════════════════════════════════════ */
+// Market outcome thresholds in °C (used only to pick the active one)
+const THRESH_TEMPS = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
+
+// Convert a Date to fractional hours in active city time (0–24)
+function cityTimeParts(date) {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: activeCity.timezone,
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(date).map(p => [p.type, p.value])
+  );
+}
+function toHourFrac(date) {
+  const parts = cityTimeParts(date);
+  return parseInt(parts.hour) + parseInt(parts.minute) / 60 + parseInt(parts.second) / 3600;
+}
+
+function drawChart() {
+  const canvas = document.getElementById('tempChart');
+  const wrap   = canvas.parentElement;
+  const dpr    = window.devicePixelRatio || 1;
+  const W      = wrap.clientWidth;
+  const H      = wrap.clientHeight;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!metarToday.length) {
+    ctx.fillStyle = 'rgba(139,146,169,0.4)';
+    ctx.font = '12px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No METAR data', W / 2, H / 2);
+    return;
+  }
+
+  const PAD = { top: 14, right: 20, bottom: 28, left: 36 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top  - PAD.bottom;
+
+  // X axis: always 0–24 h
+  const xOfHr = hr => PAD.left + (hr / 24) * cW;
+
+  // Y range from all available temps + a little padding
+  const allTemps = [
+    ...metarToday.map(d => d.temp),
+    ...metarYesterday.map(d => d.temp),
+  ];
+  const rawMin = Math.min(...allTemps);
+  const rawMax = Math.max(...allTemps);
+  const yPad   = Math.max(1, Math.round((rawMax - rawMin) * 0.15));
+  const yMin   = rawMin - yPad;
+  const yMax   = rawMax + yPad;
+
+  const yOf = v => PAD.top + (1 - (v - yMin) / (yMax - yMin)) * cH;
+
+  // ── Grid & Y labels ──
+  ctx.lineWidth = 1;
+  const step = (rawMax - rawMin) <= 6 ? 1 : 2;
+  for (let t = Math.ceil(yMin); t <= Math.floor(yMax); t += step) {
+    const y = yOf(t);
+    ctx.strokeStyle = 'rgba(37,40,54,0.9)';
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(139,146,169,0.55)';
+    ctx.font = '10px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(t + '°', PAD.left - 4, y + 3.5);
+  }
+
+  // ── X axis hour labels: every 2 h ──
+  ctx.fillStyle = 'rgba(139,146,169,0.6)';
+  ctx.font = '10px Inter,system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  for (let h = 0; h <= 24; h += 2) {
+    const x = xOfHr(h);
+    ctx.fillText(h.toString().padStart(2, '0') + ':00', x, H - PAD.bottom + 13);
+    // light tick
+    ctx.strokeStyle = 'rgba(37,40,54,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+  }
+
+  // ── Single threshold line: current winning bracket, drawn only from now→right edge ──
+  if (metarToday.length) {
+    const curTemp  = metarToday[metarToday.length - 1].temp;
+    const active   = THRESH_TEMPS.filter(t => t <= curTemp).pop() ?? THRESH_TEMPS[0];
+    const label    = active === 12 ? '≤12°C' : active === 22 ? '≥22°C' : active + '°C';
+    const y        = yOf(active);
+    const nowX     = xOfHr(toHourFrac(metarToday[metarToday.length - 1].time));
+    if (y >= PAD.top && y <= PAD.top + cH) {
+      ctx.save();
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath(); ctx.moveTo(nowX, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '10px Inter,system-ui,sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, PAD.left + 4, y - 3);
+    }
+  }
+
+  // ── Yesterday line (dotted, dim) ──
+  if (metarYesterday.length >= 2) {
+    ctx.save();
+    ctx.setLineDash([3, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(139,146,169,0.4)';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    metarYesterday.forEach((d, i) => {
+      const x = xOfHr(toHourFrac(d.time));
+      const y = yOf(d.temp);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+    // "Yesterday" label at end of line
+    const last = metarYesterday[metarYesterday.length - 1];
+    ctx.fillStyle = 'rgba(139,146,169,0.5)';
+    ctx.font = '9px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('yday', xOfHr(toHourFrac(last.time)) + 3, yOf(last.temp) + 3);
+  }
+
+  // ── Today area fill (up to latest obs only) ──
+  if (metarToday.length >= 1) {
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
+    grad.addColorStop(0,   'rgba(249,115,22,0.30)');
+    grad.addColorStop(0.7, 'rgba(249,115,22,0.06)');
+    grad.addColorStop(1,   'rgba(249,115,22,0)');
+
+    ctx.beginPath();
+    metarToday.forEach((d, i) => {
+      const x = xOfHr(toHourFrac(d.time));
+      const y = yOf(d.temp);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    const lastX = xOfHr(toHourFrac(metarToday[metarToday.length - 1].time));
+    const firstX = xOfHr(toHourFrac(metarToday[0].time));
+    ctx.lineTo(lastX,  PAD.top + cH);
+    ctx.lineTo(firstX, PAD.top + cH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // ── Today temperature line ──
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#f97316';
+    ctx.lineJoin = 'round';
+    metarToday.forEach((d, i) => {
+      const x = xOfHr(toHourFrac(d.time));
+      const y = yOf(d.temp);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // ── Dots — only on the hour and half-hour ──
+    for (const d of metarToday) {
+      const mins = d.time.getMinutes();
+      if (mins !== 0 && mins !== 30) continue;
+      const x = xOfHr(toHourFrac(d.time));
+      const y = yOf(d.temp);
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#f97316';
+      ctx.fill();
+    }
+
+    // ── Latest temp label ──
+    const ld = metarToday[metarToday.length - 1];
+    const lx = xOfHr(toHourFrac(ld.time));
+    const ly = yOf(ld.temp);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px Inter,system-ui,sans-serif';
+    ctx.textAlign = lx > W - PAD.right - 40 ? 'right' : 'left';
+    ctx.fillText(ld.temp + '°C', lx + (ctx.textAlign === 'left' ? 6 : -6), ly - 6);
+  }
+
+  // Size overlay canvas to match and store geometry for mouse handler
+  const overlay = document.getElementById('tempChartOverlay');
+  overlay.width  = W * dpr;
+  overlay.height = H * dpr;
+  overlay.style.width  = W + 'px';
+  overlay.style.height = H + 'px';
+
+  chartState = { PAD, cW, cH, W, H, xOfHr, yOf, dpr };
+}
+
+function buildLegend() {
+  // legend is now just a small note — handled inline in chart header
+  document.getElementById('chartLegend').innerHTML =
+    '<div class="legend-item"><div class="legend-dot" style="background:#f97316"></div><span>Today</span></div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:rgba(139,146,169,0.5);border-top:1px dashed rgba(139,146,169,0.5);height:0"></div><span>Yesterday</span></div>';
+}
+
+// Redraw on resize
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawChart, 80);
+});
+
+/* ── Chart tooltip / crosshair ── */
+let chartState = null; // set after each drawChart()
+
+function setupChartMouse() {
+  const overlay = document.getElementById('tempChartOverlay');
+  const tooltip = document.getElementById('chartTooltip');
+
+  overlay.addEventListener('mousemove', (e) => {
+    if (!chartState) return;
+    const { PAD, cW, cH, W, H, xOfHr, yOf, dpr } = chartState;
+
+    const rect    = overlay.getBoundingClientRect();
+    const mx      = e.clientX - rect.left;
+    const my      = e.clientY - rect.top;
+    const hoverHr = (mx - PAD.left) / cW * 24;
+
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    // Hide if outside plot area
+    if (mx < PAD.left || mx > PAD.left + cW || my < PAD.top || my > PAD.top + cH) {
+      tooltip.classList.remove('visible');
+      return;
+    }
+
+    // Find nearest today observation
+    let nearestToday = null, minDist = Infinity;
+    for (const d of metarToday) {
+      const dist = Math.abs(toHourFrac(d.time) - hoverHr);
+      if (dist < minDist) { minDist = dist; nearestToday = d; }
+    }
+
+    // Find nearest yesterday observation at same hour
+    let nearestYday = null, minDistY = Infinity;
+    for (const d of metarYesterday) {
+      const dist = Math.abs(toHourFrac(d.time) - hoverHr);
+      if (dist < minDistY) { minDistY = dist; nearestYday = d; }
+    }
+
+    if (!nearestToday || minDist > 0.6) {
+      tooltip.classList.remove('visible');
+      return;
+    }
+
+    const snapX = xOfHr(toHourFrac(nearestToday.time));
+    const snapY = yOf(nearestToday.temp);
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    // Vertical crosshair line
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.beginPath();
+    ctx.moveTo(snapX, PAD.top);
+    ctx.lineTo(snapX, PAD.top + cH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Highlighted dot on today line
+    ctx.beginPath();
+    ctx.arc(snapX, snapY, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#f97316';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Dot on yesterday line if close enough
+    if (nearestYday && minDistY < 0.6) {
+      const ydayY = yOf(nearestYday.temp);
+      ctx.beginPath();
+      ctx.arc(snapX, ydayY, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(139,146,169,0.6)';
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Tooltip content
+    const timeParts = cityTimeParts(nearestToday.time);
+    document.getElementById('ttTime').textContent = timeParts.hour + ':' + timeParts.minute + ' ' + activeCity.name.slice(0,3).toUpperCase();
+    document.getElementById('ttTemp').textContent = nearestToday.temp + '°C';
+
+
+    // Position tooltip, flip near edges
+    const tipW = 100, tipH = 60;
+    let tipX = mx + 14;
+    let tipY = my - 44;
+    if (tipX + tipW > W) tipX = mx - tipW - 14;
+    if (tipY < 4) tipY = my + 14;
+
+    tooltip.style.left = tipX + 'px';
+    tooltip.style.top  = tipY + 'px';
+    tooltip.classList.add('visible');
+  });
+
+  overlay.addEventListener('mouseleave', () => {
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    tooltip.classList.remove('visible');
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   USER POSITIONS
+═══════════════════════════════════════════════════════════ */
+const USER_ADDRESS   = '0x37ebc10af6dd7f6b89f085a290e1f72952e31df0';
+const USER_REFRESH   = 30000;
+let userUpdatedTs    = null;
+
+setInterval(() => {
+  if (userUpdatedTs)
+    document.getElementById('userUpdated').textContent =
+      'Updated ' + timeAgo(userUpdatedTs);
+}, 10000);
+
+async function loadUserPositions() {
+  try {
+    const res = await fetch(
+      `/api/data/positions?user=${USER_ADDRESS}&sizeThreshold=0.1&limit=100&sortBy=CURRENT&sortDirection=DESC`
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const positions = await res.json();
+
+    // Summary
+    const totalValue = positions.reduce((s, p) => s + (p.currentValue ?? 0), 0);
+    const totalPnl   = positions.reduce((s, p) => s + (p.cashPnl ?? 0), 0);
+
+    document.getElementById('userValue').textContent    = '$' + totalValue.toFixed(2);
+    document.getElementById('userPosCount').textContent = positions.length;
+
+    const pnlEl = document.getElementById('userPnl');
+    pnlEl.textContent = (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2);
+    pnlEl.className   = 'user-pnl ' + (totalPnl >= 0 ? 'pos' : 'neg');
+
+    renderUserPositions(positions);
+    userUpdatedTs = Date.now();
+    document.getElementById('userUpdated').textContent = 'Updated just now';
+  } catch(e) {
+    console.warn('User positions:', e.message);
+    document.getElementById('userPositions').innerHTML =
+      '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">Failed to load</div>';
+  }
+}
+
+function renderUserPositions(positions) {
+  const container = document.getElementById('userPositions');
+  if (!positions.length) {
+    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">No open positions</div>';
+    return;
+  }
+
+  container.innerHTML = positions.map(p => {
+    const isYes   = p.outcome === 'Yes';
+    const pnlSign = p.cashPnl >= 0 ? '+' : '';
+    const pnlCls  = p.cashPnl >= 0 ? 'pos' : 'neg';
+    const barW    = Math.min((p.curPrice ?? 0) * 100, 100).toFixed(1);
+    const barCol  = isYes ? 'var(--green)' : 'var(--red)';
+    const avgFmt  = p.avgPrice != null ? (p.avgPrice * 100).toFixed(1) + '¢' : '—';
+    const curFmt  = p.curPrice != null ? (p.curPrice * 100).toFixed(1) + '¢' : '—';
+
+    return `<div class="user-pos-row">
+      <div class="user-pos-top">
+        <span class="user-pos-title" title="${p.title}">${p.title}</span>
+        <span class="user-pos-outcome ${isYes ? 'yes' : 'no'}">${p.outcome}</span>
+      </div>
+      <div class="user-pos-bar"><div class="user-pos-bar-fill" style="width:${barW}%;background:${barCol}"></div></div>
+      <div class="user-pos-bottom">
+        <span>${avgFmt} avg → <span class="user-pos-price">${curFmt}</span></span>
+        <span class="user-pos-pnl ${pnlCls}">${pnlSign}$${p.cashPnl.toFixed(2)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ARCHIVE
+═══════════════════════════════════════════════════════════ */
+function loadArchive() {
+  try { return JSON.parse(localStorage.getItem(activeCity.archiveKey)) || []; }
+  catch { return []; }
+}
+function saveArchive(snaps) {
+  localStorage.setItem(activeCity.archiveKey, JSON.stringify(snaps));
+}
+
+function takeSnapshot() {
+  const markets = getMarkets();
+  if (!markets.length) return;
+
+  // Top 3 by price descending, excluding positions below 1%
+  const top3 = [...markets]
+    .sort((a, b) => getMid(b) - getMid(a))
+    .filter(m => getMid(m) >= 0.01)
+    .slice(0, 3)
+    .map(m => ({ label: m.label, pct: getMid(m) }));
+
+  const now      = new Date();
+  const timeLon  = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    day: 'numeric', month: 'short',
+  }).format(now);
+
+  const snap = {
+    id:      Date.now(),
+    time:    timeLon,
+    temp:    metarToday.length ? metarToday[metarToday.length - 1].temp : null,
+    day:     viewDay,
+    top3,
+  };
+
+  const snaps = loadArchive();
+  snaps.push(snap);
+  saveArchive(snaps);
+  renderArchive();
+
+  // Flash the archive button
+  const btn = document.getElementById('archiveBtn');
+  btn.style.color = 'var(--green)';
+  setTimeout(() => btn.style.color = '', 600);
+
+  // Open drawer if closed
+  document.getElementById('archiveDrawer').classList.add('open');
+}
+
+function deleteSnapshot(id) {
+  const snaps = loadArchive().filter(s => s.id !== id);
+  saveArchive(snaps);
+  renderArchive();
+}
+
+function toggleArchive() {
+  document.getElementById('archiveDrawer').classList.toggle('open');
+}
+
+function renderArchive() {
+  const snaps  = loadArchive();
+  const body   = document.getElementById('archiveBody');
+  const count  = document.getElementById('archiveCount');
+  const btn    = document.getElementById('archiveBtn');
+
+  count.textContent = snaps.length ? snaps.length + ' snapshot' + (snaps.length > 1 ? 's' : '') : '';
+  btn.classList.toggle('has-snaps', snaps.length > 0);
+
+  if (!snaps.length) {
+    body.innerHTML = '<div class="archive-empty">No snapshots yet — click "Snapshot" to save the current state.</div>';
+    return;
+  }
+
+  const timeline = document.createElement('div');
+  timeline.className = 'archive-timeline';
+
+  for (const snap of snaps) {
+    const card = document.createElement('div');
+    card.className = 'snapshot-card';
+
+    const positionsHtml = snap.top3.map((p, i) => {
+      const color = i === 0 ? 'var(--green)' : i === 1 ? 'var(--yellow)' : 'var(--dim)';
+      return `<div class="snap-position">
+        <span class="snap-pos-label">${p.label}</span>
+        <span class="snap-pos-pct" style="color:${color}">${(p.pct * 100).toFixed(1)}%</span>
+      </div>`;
+    }).join('');
+
+    const tempHtml = snap.temp != null
+      ? `<div class="snap-temp">&#127777; ${snap.temp}°C</div>` : '';
+
+    card.innerHTML = `
+      <div class="snap-dot"></div>
+      <div class="snap-body">
+        <div class="snap-time">
+          <span>${snap.time}</span>
+          <button class="snap-delete" onclick="deleteSnapshot(${snap.id})" title="Delete">&#x2715;</button>
+        </div>
+        ${tempHtml}
+        <div class="snap-positions">${positionsHtml}</div>
+      </div>`;
+
+    timeline.appendChild(card);
+  }
+
+  body.innerHTML = '';
+  body.appendChild(timeline);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAPER TRADING
+═══════════════════════════════════════════════════════════ */
+let pfSide = 'yes'; // 'yes' | 'no'
+
+function paperOpenKey()   { return 'polydash_paper_' + activeCity.id + '_open'; }
+function paperClosedKey() { return 'polydash_paper_' + activeCity.id + '_closed'; }
+
+function paperLoadOpen()   { try { return JSON.parse(localStorage.getItem(paperOpenKey()))   || []; } catch { return []; } }
+function paperLoadClosed() { try { return JSON.parse(localStorage.getItem(paperClosedKey())) || []; } catch { return []; } }
+function paperSaveOpen(d)   { localStorage.setItem(paperOpenKey(),   JSON.stringify(d)); }
+function paperSaveClosed(d) { localStorage.setItem(paperClosedKey(), JSON.stringify(d)); }
+
+// Get current mid price for a trade (respects YES/NO side)
+function paperGetCurrentPrice(trade) {
+  const state  = dayState[trade.day] || dayState[0];
+  const p      = state.prices[trade.yesTokenId] ?? {};
+  const b      = p.bestBid ?? null, a = p.bestAsk ?? null;
+  const yesMid = (b != null && a != null) ? (b + a) / 2
+               : (p.mid ?? p.lastTrade ?? trade.entryPrice);
+  return trade.side === 'yes' ? yesMid : 1 - yesMid;
+}
+
+// Build dropdown options from both days
+function pfPopulateOutcomes() {
+  const sel = document.getElementById('pfOutcome');
+  if (!sel) return;
+  sel.innerHTML = '';
+  [[0,'Today'],[1,'Tomorrow']].forEach(([dayIdx, dayLabel]) => {
+    const mkts = dayState[dayIdx].markets;
+    if (!mkts.length) return;
+    const grp = document.createElement('optgroup');
+    grp.label = dayLabel + ' (' + londonDateLabel(dayIdx) + ')';
+    mkts.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({ yesTokenId: m.yesTokenId, label: m.label, day: dayIdx, threshold: m.threshold });
+      opt.textContent = m.label;
+      grp.appendChild(opt);
+    });
+    sel.appendChild(grp);
+  });
+  pfUpdateEntryPrice();
+}
+
+function pfUpdateEntryPrice() {
+  const sel = document.getElementById('pfOutcome');
+  const inp = document.getElementById('pfEntry');
+  if (!sel || !inp || !sel.value) return;
+  try {
+    const { yesTokenId, day } = JSON.parse(sel.value);
+    const state  = dayState[day] || dayState[0];
+    const p      = state.prices[yesTokenId] ?? {};
+    const b      = p.bestBid ?? null, a = p.bestAsk ?? null;
+    const yesMid = (b != null && a != null) ? (b + a) / 2 : (p.mid ?? p.lastTrade ?? 0.5);
+    const price  = pfSide === 'yes' ? yesMid : 1 - yesMid;
+    inp.value    = (price * 100).toFixed(1);
+  } catch {}
+}
+
+function pfSetSide(side) {
+  pfSide = side;
+  document.getElementById('pfYes').classList.toggle('active', side === 'yes');
+  document.getElementById('pfNo').classList.toggle('active',  side === 'no');
+  pfUpdateEntryPrice();
+}
+
+function togglePaperForm() {
+  const form = document.getElementById('paperForm');
+  const btn  = document.getElementById('paperNewBtn');
+  const open = form.classList.toggle('hidden');
+  btn.textContent = open ? '+ New' : '✕';
+  btn.classList.toggle('cancel', !open);
+  if (!open) pfPopulateOutcomes(); // refresh dropdown when opening
+}
+
+function pfPlaceTrade() {
+  const sel    = document.getElementById('pfOutcome');
+  const amt    = parseFloat(document.getElementById('pfAmount').value);
+  const entry  = parseFloat(document.getElementById('pfEntry').value) / 100;
+
+  if (!sel.value || isNaN(amt) || amt <= 0 || isNaN(entry) || entry <= 0 || entry >= 1) return;
+
+  const { yesTokenId, label, day, threshold } = JSON.parse(sel.value);
+  const shares = amt / entry;
+
+  const trade = {
+    id:          Date.now(),
+    city:        activeCity.id,
+    day,
+    yesTokenId,
+    label,
+    threshold,
+    side:        pfSide,
+    amount:      amt,
+    entryPrice:  entry,
+    shares,
+    openedAt:    new Date().toLocaleString('en-GB', { timeZone: activeCity.timezone, hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' }),
+  };
+
+  const open = paperLoadOpen();
+  open.push(trade);
+  paperSaveOpen(open);
+
+  // Close form
+  document.getElementById('paperForm').classList.add('hidden');
+  document.getElementById('paperNewBtn').textContent = '+ New';
+  document.getElementById('paperNewBtn').classList.remove('cancel');
+
+  renderPaperTrades();
+}
+
+function paperCloseTrade(id) {
+  id = Number(id);
+  const open   = paperLoadOpen();
+  const idx    = open.findIndex(t => Number(t.id) === id);
+  if (idx === -1) return;
+  const trade  = open[idx];
+  const curPrice = paperGetCurrentPrice(trade);
+  const curValue = trade.shares * curPrice;
+  const pnl      = curValue - trade.amount;
+
+  const closed = paperLoadClosed();
+  closed.push({
+    ...trade,
+    exitPrice: curPrice,
+    finalPnl:  pnl,
+    finalPct:  pnl / trade.amount * 100,
+    closedAt:  new Date().toLocaleString('en-GB', { timeZone: activeCity.timezone, hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' }),
+  });
+  open.splice(idx, 1);
+  paperSaveOpen(open);
+  paperSaveClosed(closed);
+  renderPaperTrades();
+}
+
+function paperDeleteClosed(id) {
+  id = Number(id);
+  const closed = paperLoadClosed().filter(t => Number(t.id) !== id);
+  paperSaveClosed(closed);
+  renderPaperTrades();
+}
+
+function renderPaperTrades() {
+  const body   = document.getElementById('paperBody');
+  if (!body) return;
+  const open   = paperLoadOpen().filter(t => t.city === activeCity.id);
+  const closed = paperLoadClosed().filter(t => t.city === activeCity.id);
+
+  if (!open.length && !closed.length) {
+    body.innerHTML = '<div class="paper-empty">No paper trades yet.<br>Click "+ New" to start.</div>';
+    return;
+  }
+
+  let html = '';
+
+  // ── Open positions ──
+  if (open.length) {
+    html += '<div class="paper-section-label">Open</div>';
+    for (const t of open) {
+      const curPrice  = paperGetCurrentPrice(t);
+      const curValue  = t.shares * curPrice;
+      const pnl       = curValue - t.amount;
+      const pnlPct    = pnl / t.amount * 100;
+      const pnlCls    = pnl >= 0 ? 'pos' : 'neg';
+      const pnlSign   = pnl >= 0 ? '+' : '';
+      const barW      = Math.min(curPrice * 100, 100).toFixed(1);
+      const barColor  = t.side === 'yes' ? 'var(--green)' : 'var(--red)';
+      const dayLabel  = t.day === 0 ? 'today' : 'tmrw';
+
+      html += `<div class="paper-trade-card">
+        <div class="ptc-top">
+          <span class="ptc-label">${t.label}</span>
+          <span class="ptc-day">${dayLabel}</span>
+          <span class="ptc-side ${t.side}">${t.side.toUpperCase()}</span>
+        </div>
+        <div class="ptc-bar"><div class="ptc-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
+        <div class="ptc-prices">
+          <span>${(t.entryPrice*100).toFixed(1)}¢ entry</span>
+          <span class="ptc-cur-price">${(curPrice*100).toFixed(1)}¢ now</span>
+        </div>
+        <div class="ptc-pnl-row">
+          <span class="ptc-values">$${t.amount.toFixed(2)} → $${curValue.toFixed(2)}</span>
+          <span class="ptc-pnl ${pnlCls}">${pnlSign}$${Math.abs(pnl).toFixed(2)} <span style="font-size:9px">${pnlSign}${pnlPct.toFixed(1)}%</span></span>
+        </div>
+        <button class="ptc-close-btn" onclick="paperCloseTrade(${t.id})">Close position</button>
+      </div>`;
+    }
+  }
+
+  // ── Closed positions ──
+  if (closed.length) {
+    html += '<div class="paper-section-label" style="margin-top:4px">Closed</div>';
+    for (const t of [...closed].reverse()) {
+      const pnlCls  = t.finalPnl >= 0 ? 'pos' : 'neg';
+      const pnlSign = t.finalPnl >= 0 ? '+' : '';
+      html += `<div class="paper-closed-row">
+        <span class="pcr-label" title="${t.label}">${t.label}</span>
+        <span class="pcr-side ${t.side}">${t.side.toUpperCase()}</span>
+        <span class="pcr-pnl ${pnlCls}">${pnlSign}$${Math.abs(t.finalPnl).toFixed(2)}</span>
+        <button class="pcr-del" onclick="paperDeleteClosed(${t.id})" title="Delete">✕</button>
+      </div>`;
+    }
+  }
+
+  body.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CITY SWITCHING
+═══════════════════════════════════════════════════════════ */
+function switchCity(cityId) {
+  if (activeCity.id === cityId) return;
+  activeCity = CITIES[cityId];
+
+  // Update city tab UI
+  Object.keys(CITIES).forEach(id => {
+    document.getElementById('cityTab-' + id)?.classList.toggle('active', id === cityId);
+  });
+
+  // Reset all state
+  viewDay = 0;
+  dayState = [ makeDayState(), makeDayState() ];
+  metarToday = []; metarYesterday = []; metarObsTime = null;
+  chartState = null;
+
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+
+  // Reset UI
+  document.getElementById('mktBody').innerHTML = '';
+  document.getElementById('tabToday').classList.add('active');
+  document.getElementById('tabTomorrow').classList.remove('active');
+  document.getElementById('tempNow').innerHTML = '—<span class="temp-unit">°C</span>';
+  document.getElementById('metarRaw').textContent = 'loading…';
+  document.getElementById('chartTitle').textContent = activeCity.metar + ' Temperature Today';
+  document.getElementById('cfMin').textContent = '—';
+  document.getElementById('cfMax').textContent = '—';
+  document.getElementById('cfDew').textContent = '—';
+  document.getElementById('cfWind').textContent = '—';
+  document.getElementById('metarUpd').textContent = '—';
+
+  // Clear overlay canvas
+  const overlay = document.getElementById('tempChartOverlay');
+  if (overlay) overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+
+  // Update archive + paper trades display for new city
+  renderArchive();
+  renderPaperTrades();
+
+  // Close paper form if open
+  document.getElementById('paperForm').classList.add('hidden');
+  document.getElementById('paperNewBtn').textContent = '+ New';
+  document.getElementById('paperNewBtn').classList.remove('cancel');
+
+  // Reload everything
+  Promise.all([loadMarkets(), loadMetar()]).catch(console.error);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BOOT
+═══════════════════════════════════════════════════════════ */
+buildLegend();
+updateTabLabels();
+setupChartMouse();
+renderArchive();
+renderPaperTrades();
+loadUserPositions();
+setInterval(loadUserPositions, USER_REFRESH);
+
+Promise.all([loadMarkets(), loadMetar()]).catch(err => {
+  console.error(err);
+  document.getElementById('mktBody').innerHTML = `
+    <tr><td colspan="3">
+      <div class="err">
+        <div>${err.message}</div>
+        <button class="retry-btn" onclick="location.reload()">Retry</button>
+      </div>
+    </td></tr>`;
+});
+
+setInterval(loadMetar, METAR_REFRESH_MS);
+
+// Midnight rollover — check every minute if London date has changed
+setInterval(() => {
+  const newDay = cityDateParts(0).day;
+  if (newDay !== currentDay) {
+    currentDay = newDay;
+    viewDay = 0;
+    // Reset both day states
+    for (const s of dayState) {
+      if (s.clobTimer) clearInterval(s.clobTimer);
+      s.markets = []; s.prices = {}; s.prevPrices = {}; s.loaded = false; s.clobTimer = null;
+    }
+    metarToday = []; metarYesterday = []; metarObsTime = null;
+    if (ws) { ws.onclose = null; ws.close(); ws = null; }
+    document.getElementById('mktBody').innerHTML = '';
+    document.getElementById('tabToday').classList.add('active');
+    document.getElementById('tabTomorrow').classList.remove('active');
+    Promise.all([loadMarkets(), loadMetar()]).catch(console.error);
+  }
+}, 60_000);
+</script>
+</body>
+</html>

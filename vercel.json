@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/api/gamma/:path*", "destination": "/api/gamma/:path*" },
+    { "source": "/api/clob/:path*",  "destination": "/api/clob/:path*"  },
+    { "source": "/api/data/:path*",  "destination": "/api/data/:path*"  },
+    { "source": "/api/metar",        "destination": "/api/metar"        }
+  ]
+}
