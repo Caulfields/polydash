@@ -1363,10 +1363,10 @@ async function loadMarketsForDay(offset) {
   }
   if (!event) {
     // Fall back to series search
-    const seriesRes = await fetch(`${GAMMA_API}/events?seriesSlug=${SERIES_SLUG}&limit=5&active=true`);
+    const seriesRes = await fetch(`${GAMMA_API}/events?seriesSlug=${activeCity.seriesSlug}&limit=5&active=true`);
     if (seriesRes.ok) {
       const arr = await seriesRes.json();
-      const targetDay = londonDateParts(offset).day;
+      const targetDay = cityDateParts(offset).day;
       event = arr.find(e => new Date(e.endDate).getDate() === targetDay) ?? null;
     }
   }
