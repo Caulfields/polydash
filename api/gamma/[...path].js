@@ -7,15 +7,16 @@ function isSafeOrigin(req) {
   return !origin || origin.includes(host) || origin.includes('localhost');
 }
 
+// Extract path segments from req.url directly (Vercel catch-all may not populate req.query.path)
 function getSegments(req) {
-  const { path } = req.query;
-  if (!path) return [];
-  return Array.isArray(path) ? path : [path];
+  // req.url = "/api/gamma/events?slug=..." → we want ["events"]
+  const urlPath = req.url.split('?')[0]; // e.g. "/api/gamma/events"
+  const parts   = urlPath.replace(/^\/api\/gamma\/?/, '').split('/').filter(Boolean);
+  return parts;
 }
 
 function isSafePath(segments) {
   if (!segments.length) return false;
-  // First segment must be in allowlist
   return ALLOWED_PREFIXES.includes(segments[0]);
 }
 
@@ -38,13 +39,13 @@ module.exports = async function handler(req, res) {
   const segments = getSegments(req);
 
   if (!isSafePath(segments)) {
-    res.status(400).end(JSON.stringify({ error: 'Invalid path', got: segments }));
+    res.status(400).end(JSON.stringify({ error: 'Invalid path', got: segments, url: req.url }));
     return;
   }
 
   const url = new URL('https://gamma-api.polymarket.com/' + segments.join('/'));
-  const searchParams = new URLSearchParams(req.query);
-  searchParams.delete('path');
+  // Forward all query params
+  const searchParams = new URLSearchParams(req.url.includes('?') ? req.url.split('?')[1] : '');
   url.search = searchParams.toString();
 
   const body = ['GET', 'HEAD'].includes(req.method) ? undefined

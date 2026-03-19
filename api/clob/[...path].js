@@ -8,9 +8,8 @@ function isSafeOrigin(req) {
 }
 
 function getSegments(req) {
-  const { path } = req.query;
-  if (!path) return [];
-  return Array.isArray(path) ? path : [path];
+  const urlPath = req.url.split('?')[0];
+  return urlPath.replace(/^\/api\/clob\/?/, '').split('/').filter(Boolean);
 }
 
 function isSafePath(segments) {
@@ -42,8 +41,7 @@ module.exports = async function handler(req, res) {
   }
 
   const url = new URL('https://clob.polymarket.com/' + segments.join('/'));
-  const searchParams = new URLSearchParams(req.query);
-  searchParams.delete('path');
+  const searchParams = new URLSearchParams(req.url.includes('?') ? req.url.split('?')[1] : '');
   url.search = searchParams.toString();
 
   const body = ['GET', 'HEAD'].includes(req.method) ? undefined
