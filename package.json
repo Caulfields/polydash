@@ -2,7 +2,6 @@
   "name": "polydash",
   "version": "1.0.0",
   "description": "Polymarket real-time positions dashboard",
-  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },

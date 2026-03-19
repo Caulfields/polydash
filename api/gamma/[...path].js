@@ -1,19 +1,14 @@
 // Proxy to https://gamma-api.polymarket.com
-// Only relays requests originating from the same deployment.
-
-const ALLOWED_PREFIXES = [
-  '/events',
-  '/markets',
-];
+const ALLOWED_PREFIXES = ['/events', '/markets'];
 
 function isSafeOrigin(req) {
   const origin = req.headers.origin || '';
-  const host   = req.headers.host || '';
+  const host   = req.headers.host   || '';
   return !origin || origin.includes(host) || origin.includes('localhost');
 }
 
 function isSafePath(segments) {
-  if (!segments.length) return false;
+  if (!segments || !segments.length) return false;
   const joined = '/' + segments.join('/').replace(/\.\.+/g, '').replace(/\/\/+/g, '/');
   return ALLOWED_PREFIXES.some(p => joined.startsWith(p));
 }
@@ -23,25 +18,27 @@ async function readBody(req) {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
-      try { resolve(JSON.parse(body)); } catch { resolve(body || null); }
+      try { resolve(JSON.parse(body)); } catch { resolve(null); }
     });
   });
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (!isSafeOrigin(req)) {
-    return res.status(403).json({ error: 'Forbidden' });
+    res.status(403).end(JSON.stringify({ error: 'Forbidden' }));
+    return;
   }
 
   const { path = [] } = req.query;
+  const segments = Array.isArray(path) ? path : [path];
 
-  if (!isSafePath(path)) {
-    return res.status(400).json({ error: 'Invalid path' });
+  if (!isSafePath(segments)) {
+    res.status(400).end(JSON.stringify({ error: 'Invalid path' }));
+    return;
   }
 
-  const safePath = path.map(s => encodeURIComponent(s).replace(/%2F/g, '/')).join('/');
+  const safePath = segments.join('/');
   const url = new URL('https://gamma-api.polymarket.com/' + safePath);
-
   const searchParams = new URLSearchParams(req.query);
   searchParams.delete('path');
   url.search = searchParams.toString();
@@ -50,7 +47,7 @@ export default async function handler(req, res) {
     : JSON.stringify(await readBody(req));
 
   const upstream = await fetch(url.toString(), {
-    method: req.method,
+    method:  req.method,
     headers: { 'Content-Type': 'application/json', 'User-Agent': 'polydash/1.0' },
     body,
   });
@@ -61,4 +58,4 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Vary', 'Origin');
   res.end(data);
-}
+};

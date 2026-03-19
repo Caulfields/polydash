@@ -1,32 +1,33 @@
 // METAR proxy with per-station in-memory cache (resets on cold start).
-// Validates the station code before proxying.
 const metarCache = {};
 
 function isSafeOrigin(req) {
   const origin = req.headers.origin || '';
-  const host   = req.headers.host || '';
+  const host   = req.headers.host   || '';
   return !origin || origin.includes(host) || origin.includes('localhost');
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (!isSafeOrigin(req)) {
-    return res.status(403).json({ error: 'Forbidden' });
+    res.status(403).end(JSON.stringify({ error: 'Forbidden' }));
+    return;
   }
 
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Vary', 'Origin');
 
-  // Strict station code validation: 3–4 uppercase alphanumeric chars only
   const raw     = (req.query.station || 'EGLC') + '';
   const station = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
   if (!/^[A-Z0-9]{3,4}$/.test(station)) {
-    return res.status(400).json({ error: 'Invalid station code' });
+    res.status(400).end(JSON.stringify({ error: 'Invalid station code' }));
+    return;
   }
 
   const cache = metarCache[station] || { data: null, ts: 0 };
   if (cache.data && Date.now() - cache.ts < 60_000) {
     res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify(cache.data));
+    res.end(JSON.stringify(cache.data));
+    return;
   }
 
   const url = `https://aviationweather.gov/api/data/metar?ids=${station}&format=json&taf=false&hours=48`;
@@ -42,8 +43,9 @@ export default async function handler(req, res) {
     console.error('[metar]', e.message);
     if (cache.data) {
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify(cache.data));
+      res.end(JSON.stringify(cache.data));
+      return;
     }
     res.status(502).end(JSON.stringify({ error: e.message }));
   }
-}
+};
