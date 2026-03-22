@@ -356,18 +356,21 @@
     }
 
     canvas#tempChart {
-      width: 100% !important;
-      height: 100% !important;
+      width: 100%;
+      height: 100%;
     }
 
     canvas#tempChartOverlay {
       position: absolute;
       top: 12px; left: 16px; right: 16px; bottom: 8px;
-      width: calc(100% - 32px) !important;
-      height: calc(100% - 20px) !important;
+      width: calc(100% - 32px);
+      height: calc(100% - 20px);
       pointer-events: all;
       cursor: crosshair;
     }
+
+    .main.paper-hidden { grid-template-columns: 380px 1fr 280px; }
+    .main.paper-hidden .paper-panel { display: none; }
 
     /* ── Chart tooltip ── */
     .chart-tooltip {
@@ -2396,6 +2399,11 @@ function togglePaperForm() {
   btn.textContent = open ? '+ New' : '✕';
   btn.classList.toggle('cancel', !open);
   if (!open) pfPopulateOutcomes(); // refresh dropdown when opening
+}
+
+function togglePaperPanel() {
+  document.querySelector('.main').classList.toggle('paper-hidden');
+  requestAnimationFrame(() => drawChart());
 }
 
 function pfPlaceTrade() {
