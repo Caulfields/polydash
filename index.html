@@ -305,6 +305,10 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      align-self: start;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin: 10px 6px;
     }
 
     .chart-header {
@@ -344,7 +348,8 @@
     }
 
     .chart-wrap {
-      flex: 1;
+      height: 185px;
+      flex: none;
       position: relative;
       min-height: 0;
       padding: 12px 16px 8px;
@@ -815,18 +820,72 @@
       padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 12px; margin-top: 8px;
     }
 
+    /* ── 3-column: paper panel hidden ── */
     @media (max-width: 1280px) {
       .main { grid-template-columns: 380px 1fr 280px; }
+      .main.paper-hidden { grid-template-columns: 380px 1fr 280px; }
       .paper-panel { display: none; }
+      .paper-toggle-btn { display: none; }
     }
-    @media (max-width: 1000px) {
-      .main { grid-template-columns: 380px 1fr; }
+
+    /* ── 2-column ── */
+    @media (max-width: 1024px) {
+      .main { grid-template-columns: 340px 1fr; }
       .user-panel { display: none; }
-      .paper-panel { display: none; }
     }
-    @media (max-width: 750px) {
-      .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-      .left-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: 50vh; }
+
+    /* ── Stacked (mobile) ── */
+    @media (max-width: 768px) {
+      body { overflow-y: auto; }
+
+      .main {
+        grid-template-columns: 1fr;
+        overflow: visible;
+        height: auto;
+        flex: none;
+      }
+      .main.paper-hidden { grid-template-columns: 1fr; }
+
+      /* un-hide all panels */
+      .user-panel, .paper-panel {
+        display: flex;
+        max-width: none;
+        min-width: 0;
+        border-left: none;
+        border-top: 1px solid var(--border);
+        overflow: visible;
+        height: auto;
+      }
+
+      /* markets panel */
+      .left-panel {
+        overflow: visible;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+      .table-scroll { max-height: 50vh; flex: none; }
+
+      /* METAR panel */
+      .right-panel {
+        align-self: auto;
+        margin: 0;
+        border: none;
+        border-radius: 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .chart-wrap { height: 200px; }
+
+      /* positions + paper scroll caps */
+      .user-positions-scroll, .paper-body {
+        max-height: 300px;
+        flex: none;
+      }
+
+      /* header: wrap buttons */
+      header { flex-wrap: wrap; gap: 6px; padding: 8px 14px; }
+      .paper-toggle-btn { display: none; }
+      header h1 { order: -1; width: 100%; }
     }
 
     /* ── Archive drawer ── */
@@ -1053,6 +1112,26 @@
     }
     .data-btn:hover { color: var(--text); background: var(--border); }
     .data-btn.import-btn:hover { color: var(--green); }
+
+    /* ── Paper Trading toggle button ── */
+    .paper-toggle-btn {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .paper-toggle-btn:hover { color: var(--text); background: var(--border); }
+    .paper-toggle-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(124,58,237,0.1); }
+
+    /* ── Paper hidden state ── */
+    .main.paper-hidden { grid-template-columns: 380px 1fr 280px; }
+    .main.paper-hidden .paper-panel { display: none; }
   </style>
 </head>
 <body>
@@ -1069,6 +1148,7 @@
   <button class="data-btn" onclick="exportData()" title="Export all data to JSON file">&#8595; Export</button>
   <button class="data-btn import-btn" onclick="document.getElementById('importFile').click()" title="Import data from JSON file">&#8593; Import</button>
   <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)" />
+  <button class="paper-toggle-btn active" id="paperToggleBtn" onclick="togglePaperPanel()" title="Toggle Paper Trading panel">Paper Trading</button>
   <div class="ws-status">
     <div class="ws-dot connecting" id="wsDot"></div>
   </div>
@@ -1114,10 +1194,10 @@
   <!-- ── Right: METAR chart ── -->
   <div class="right-panel">
     <div class="chart-header">
-      <span class="chart-title" id="chartTitle">EGLC Temperature Today</span>
       <span class="temp-now" id="tempNow">—<span class="temp-unit">°C</span></span>
       <span id="londonTime" style="font-size:13px;font-weight:600;color:var(--dim);flex-shrink:0">—</span>
-      <span class="metar-raw" id="metarRaw">loading…</span>
+      <span class="chart-title" id="chartTitle" style="display:none"></span>
+      <span class="metar-raw" id="metarRaw" style="display:none"></span>
     </div>
     <div class="chart-wrap">
         <canvas id="tempChart"></canvas>
@@ -2185,6 +2265,12 @@ function deleteSnapshot(id) {
 
 function toggleArchive() {
   document.getElementById('archiveDrawer').classList.toggle('open');
+}
+
+function togglePaperPanel() {
+  const hidden = document.querySelector('.main').classList.toggle('paper-hidden');
+  const btn = document.getElementById('paperToggleBtn');
+  btn.classList.toggle('active', !hidden);
 }
 
 function renderArchive() {
