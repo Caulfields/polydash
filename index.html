@@ -390,6 +390,7 @@
     .chart-tooltip.visible { opacity: 1; }
     .chart-tooltip-time { color: var(--dim); font-size: 11px; }
     .chart-tooltip-temp { font-weight: 700; color: var(--orange); font-size: 14px; }
+    .chart-tooltip-wx   { font-size: 11px; color: var(--dim); margin-top: 2px; }
 
 
     .chart-footer {
@@ -1208,7 +1209,7 @@
         <div class="chart-tooltip" id="chartTooltip">
           <div class="chart-tooltip-time" id="ttTime"></div>
           <div class="chart-tooltip-temp" id="ttTemp"></div>
-
+          <div class="chart-tooltip-wx"   id="ttWx"></div>
         </div>
     </div>
     <div class="legend-wrap" id="chartLegend"></div>
@@ -1222,8 +1223,8 @@
         <span class="cf-value" id="cfMax" style="color:var(--orange)">—</span>
       </div>
       <div class="cf-item">
-        <span class="cf-label">Dew point</span>
-        <span class="cf-value" id="cfDew">—</span>
+        <span class="cf-label">Погода</span>
+        <span class="cf-value" id="cfWeather">—</span>
       </div>
       <div class="cf-item">
         <span class="cf-label">Wind</span>
@@ -1751,12 +1752,13 @@ async function loadMetar() {
     const obs = raw
       .filter(r => r.temp != null)
       .map(r => ({
-        time:  new Date(r.reportTime),
-        temp:  r.temp,
-        dewp:  r.dewp,
-        wspd:  r.wspd,
-        wdir:  r.wdir,
-        rawOb: r.rawOb,
+        time:    new Date(r.reportTime),
+        temp:    r.temp,
+        dewp:    r.dewp,
+        wspd:    r.wspd,
+        wdir:    r.wdir,
+        rawOb:   r.rawOb,
+        weather: parseMetarWeather(r.rawOb),
       }))
       .sort((a, b) => a.time - b.time);
 
@@ -1780,6 +1782,57 @@ async function loadMetar() {
   }
 }
 
+function parseMetarWeather(rawOb) {
+  if (!rawOb) return '—';
+  const tokens = rawOb.split(' ');
+
+  // Present weather codes — checked first (more specific than sky)
+  const wxMap = {
+    'TSRA': 'Гроза с дождём', 'TSSN': 'Гроза со снегом', 'TSGS': 'Гроза с крупой',
+    'TS':   'Гроза',
+    '+RA':  'Сильный дождь',  'RA':  'Дождь',  '-RA': 'Слабый дождь',
+    '+SN':  'Сильный снег',   'SN':  'Снег',   '-SN': 'Слабый снег',
+    'RASN': 'Дождь со снегом','SNRA':'Снег с дождём',
+    '+DZ':  'Сильная морось', 'DZ':  'Морось', '-DZ': 'Слабая морось',
+    'FZRA': 'Ледяной дождь',  'FZDZ':'Ледяная морось',
+    '+GR':  'Сильный град',   'GR':  'Град',   'GS':  'Крупа',
+    'BLSN': 'Метель',         'DRSN':'Поземный снег',
+    'FG':   'Туман',          'FZFG':'Замерзающий туман', 'MIFG':'Поземный туман',
+    'BR':   'Дымка',
+    'HZ':   'Мгла',
+    'FU':   'Дым',
+    'DU':   'Пыль',
+    'SA':   'Песок',
+    'SQ':   'Шквал',
+    'FC':   'Смерч',
+  };
+
+  // Sky coverage priority: higher index = more overcast
+  const skyPriority = { FEW: 1, SCT: 2, BKN: 3, OVC: 4 };
+  const skyLabel    = { FEW: 'Малооблачно', SCT: 'Переменная облачность', BKN: 'Облачно', OVC: 'Пасмурно' };
+
+  // Check present weather tokens
+  for (const token of tokens) {
+    if (wxMap[token]) return wxMap[token];
+  }
+
+  // Check clear-sky keywords
+  for (const token of tokens) {
+    if (/^(SKC|CLR|NSC|NCD|CAVOK)$/.test(token)) return 'Ясно';
+  }
+
+  // Parse sky layers, pick dominant one
+  let bestPriority = 0, bestLabel = null;
+  for (const token of tokens) {
+    const m = token.match(/^(FEW|SCT|BKN|OVC)\d{3}/);
+    if (m && skyPriority[m[1]] > bestPriority) {
+      bestPriority = skyPriority[m[1]];
+      bestLabel    = skyLabel[m[1]];
+    }
+  }
+  return bestLabel || '—';
+}
+
 function updateMetarUI() {
   if (!metarToday.length) return;
   const latest = metarToday[metarToday.length - 1];
@@ -1787,7 +1840,7 @@ function updateMetarUI() {
   document.getElementById('tempNow').innerHTML =
     latest.temp + '<span class="temp-unit">°C</span>';
   document.getElementById('metarRaw').textContent = latest.rawOb;
-  document.getElementById('cfDew').textContent = latest.dewp != null ? latest.dewp + '°C' : '—';
+  document.getElementById('cfWeather').textContent = parseMetarWeather(latest.rawOb);
   document.getElementById('cfWind').textContent =
     (latest.wdir === 'VRB' ? 'VRB' : (latest.wdir != null ? latest.wdir + '°' : '—')) +
     (latest.wspd != null ? ' ' + latest.wspd + 'kt' : '');
@@ -2093,10 +2146,11 @@ function setupChartMouse() {
     const timeParts = cityTimeParts(nearestToday.time);
     document.getElementById('ttTime').textContent = timeParts.hour + ':' + timeParts.minute + ' ' + activeCity.name.slice(0,3).toUpperCase();
     document.getElementById('ttTemp').textContent = nearestToday.temp + '°C';
+    document.getElementById('ttWx').textContent   = nearestToday.weather || '';
 
 
     // Position tooltip, flip near edges
-    const tipW = 100, tipH = 60;
+    const tipW = 100, tipH = 74;
     let tipX = mx + 14;
     let tipY = my - 44;
     if (tipX + tipW > W) tipX = mx - tipW - 14;
@@ -2640,7 +2694,7 @@ function switchCity(cityId) {
   document.getElementById('chartTitle').textContent = activeCity.metar + ' Temperature Today';
   document.getElementById('cfMin').textContent = '—';
   document.getElementById('cfMax').textContent = '—';
-  document.getElementById('cfDew').textContent = '—';
+  document.getElementById('cfWeather').textContent = '—';
   document.getElementById('cfWind').textContent = '—';
   document.getElementById('metarUpd').textContent = '—';
 
