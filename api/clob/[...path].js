@@ -1,5 +1,5 @@
 // Proxy to https://clob.polymarket.com
-const ALLOWED_PREFIXES = ['midpoints', 'last-trade-prices', 'orderbook', 'prices'];
+const ALLOWED_PREFIXES = ['midpoints', 'last-trade-prices', 'orderbook', 'prices', 'prices-history'];
 
 function isSafeOrigin(req) {
   const origin = req.headers.origin || '';

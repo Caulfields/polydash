@@ -55,18 +55,21 @@ app.get('/api/metar', (req, res) => {
   const station = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
   if (!/^[A-Z0-9]{3,4}$/.test(station)) return res.status(400).json({ error: 'Invalid station' });
 
-  const cache = metarCache[station] || { data: null, ts: 0 };
+  const hoursRaw = parseInt(req.query.hours) || 48;
+  const hours    = Math.min(Math.max(hoursRaw, 1), 168);
+  const cacheKey = `${station}_${hours}`;
+  const cache = metarCache[cacheKey] || { data: null, ts: 0 };
   const now   = Date.now();
   if (cache.data && now - cache.ts < 60_000) return res.json(cache.data);
 
-  const url = `https://aviationweather.gov/api/data/metar?ids=${station}&format=json&taf=false&hours=48`;
+  const url = `https://aviationweather.gov/api/data/metar?ids=${station}&format=json&taf=false&hours=${hours}`;
   https.get(url, { headers: { 'User-Agent': 'polydash/1.0' } }, (upstream) => {
     let body = '';
     upstream.on('data', chunk => body += chunk);
     upstream.on('end', () => {
       try {
         const json = JSON.parse(body);
-        metarCache[station] = { data: json, ts: Date.now() };
+        metarCache[cacheKey] = { data: json, ts: Date.now() };
         res.json(json);
       } catch(e) {
         if (cache.data) return res.json(cache.data);
