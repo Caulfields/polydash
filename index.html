@@ -4,6 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Polymarket — London Temperature</title>
+  <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png">
+  <link rel="manifest" href="/favicon/site.webmanifest">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -29,7 +34,8 @@
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
       font-size: 13px;
       line-height: 1.4;
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
@@ -91,6 +97,8 @@
       grid-template-columns: 380px 1fr 280px 280px;
       gap: 0;
       overflow: hidden;
+      align-items: stretch;
+      min-height: 0;
     }
 
     /* ── Left panel ── */
@@ -99,6 +107,7 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      min-height: 0;
     }
 
     .panel-header {
@@ -305,10 +314,12 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      align-self: start;
       border: 1px solid var(--border);
       border-radius: 8px;
       margin: 10px 6px;
+      align-self: stretch;
+      min-height: 0;
+      flex: 1;
     }
 
     .chart-header {
@@ -348,23 +359,23 @@
     }
 
     .chart-wrap {
-      height: 185px;
-      flex: none;
-      position: relative;
+      flex: 1;
       min-height: 0;
-      padding: 12px 16px 8px;
+      position: relative;
+      min-width: 0;
     }
 
     canvas#tempChart {
       width: 100%;
       height: 100%;
+      display: block;
     }
 
     canvas#tempChartOverlay {
       position: absolute;
-      top: 12px; left: 16px; right: 16px; bottom: 8px;
-      width: calc(100% - 32px);
-      height: calc(100% - 20px);
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
       pointer-events: all;
       cursor: crosshair;
     }
@@ -414,12 +425,88 @@
       align-self: flex-end;
     }
 
+    /* ── Open-Meteo panel ── */
+    .om-panel {
+      border-top: 1px solid var(--border);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+    .om-header {
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .om-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .om-badge {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(99,102,241,0.15);
+      color: var(--blue);
+      font-weight: 600;
+    }
+    .om-chart-wrap {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      min-width: 0;
+    }
+    canvas#omChart {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .om-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.1s;
+      z-index: 10;
+    }
+    .om-tooltip.visible { opacity: 1; }
+    .om-tooltip-time { color: var(--dim); font-size: 11px; }
+    .om-tooltip-temp { font-weight: 700; color: var(--orange); font-size: 14px; }
+    .om-tooltip-wind { font-size: 11px; color: var(--dim); }
+    .om-tooltip-rain { font-size: 11px; color: #38bdf8; }
+    .om-updated {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--muted);
+    }
+    .om-loading {
+      padding: 20px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
     /* outcome threshold lines legend */
     .legend-wrap {
       padding: 0 16px 10px;
       display: flex;
       flex-wrap: wrap;
       gap: 6px 14px;
+      flex-shrink: 0;
     }
     .legend-item {
       display: flex; align-items: center; gap: 4px;
@@ -437,6 +524,7 @@
       overflow: hidden;
       min-width: 260px;
       max-width: 300px;
+      min-height: 0;
     }
 
     .user-panel-header {
@@ -578,6 +666,7 @@
       overflow: hidden;
       min-width: 260px;
       max-width: 300px;
+      min-height: 0;
     }
 
     .paper-header {
@@ -1233,6 +1322,27 @@
       </div>
       <span class="metar-updated" id="metarUpd">—</span>
     </div>
+
+    <!-- ── Open-Meteo (UKMO) ── -->
+    <div class="om-panel" id="omPanel">
+      <div class="om-header">
+        <span class="om-title">Open-Meteo</span>
+        <span class="om-badge">UKMO</span>
+      </div>
+      <div class="om-chart-wrap">
+        <canvas id="omChart"></canvas>
+        <div class="om-tooltip" id="omTooltip">
+          <div class="om-tooltip-time" id="omTtTime"></div>
+          <div class="om-tooltip-temp" id="omTtTemp"></div>
+          <div class="om-tooltip-wind" id="omTtWind"></div>
+          <div class="om-tooltip-rain" id="omTtRain"></div>
+        </div>
+      </div>
+      <div class="om-loading" id="omLoading">Loading…</div>
+      <div id="omComingSoon" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:var(--panel)">
+        <span style="color:var(--dim);font-size:13px;letter-spacing:.05em">Coming Soon</span>
+      </div>
+    </div>
   </div>
 
   <!-- ── Right: user positions ── -->
@@ -1419,6 +1529,7 @@ function fmtMetarAge(ts) {
 setInterval(() => {
   if (metarObsTime) document.getElementById('metarUpd').textContent = fmtMetarAge(metarObsTime);
 }, 30000);
+
 
 function tickLondonClock() {
   const t = new Date().toLocaleTimeString('en-GB', { timeZone: activeCity.timezone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -2458,7 +2569,7 @@ function togglePaperForm() {
 
 function togglePaperPanel() {
   document.querySelector('.main').classList.toggle('paper-hidden');
-  requestAnimationFrame(() => drawChart());
+  requestAnimationFrame(() => { drawChart(); if (omData) drawOmChart(); });
 }
 
 function pfPlaceTrade() {
@@ -2712,6 +2823,15 @@ function switchCity(cityId) {
   document.getElementById('paperNewBtn').textContent = '+ New';
   document.getElementById('paperNewBtn').classList.remove('cancel');
 
+  // Show/hide Open-Meteo panel depending on city
+  const omComingSoon = document.getElementById('omComingSoon');
+  if (cityId === 'london') {
+    omComingSoon.style.display = 'none';
+    fetchOpenMeteo();
+  } else {
+    omComingSoon.style.display = 'flex';
+  }
+
   // Reload everything
   Promise.all([loadMarkets(), loadMetar()]).catch(console.error);
 }
@@ -2762,6 +2882,251 @@ setInterval(() => {
     Promise.all([loadMarkets(), loadMetar()]).catch(console.error);
   }
 }, 60_000);
+
+/* ═══════════════════════════════════════════════════════════
+   OPEN-METEO (UKMO) — chart
+═══════════════════════════════════════════════════════════ */
+const OM_LAT = 51.5053, OM_LON = 0.0553;
+const OM_REFRESH = 15 * 60 * 1000;
+const OM_API = `https://api.open-meteo.com/v1/forecast?latitude=${OM_LAT}&longitude=${OM_LON}`
+  + `&minutely_15=temperature_2m,precipitation,wind_speed_10m,wind_direction_10m`
+  + `&forecast_days=1&models=ukmo_seamless&timezone=Europe/London`;
+
+let omData = null; // cached API response
+
+function drawOmChart() {
+  const canvas = document.getElementById('omChart');
+  const wrap   = canvas.parentElement;
+  const dpr    = window.devicePixelRatio || 1;
+  const W      = wrap.clientWidth;
+  const H      = wrap.clientHeight;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!omData || !omData.minutely_15) {
+    ctx.fillStyle = 'rgba(139,146,169,0.4)';
+    ctx.font = '12px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data', W / 2, H / 2);
+    return;
+  }
+
+  const h     = omData.minutely_15;
+  const temps = h.temperature_2m;
+  const rain  = h.precipitation;
+  const wSpd  = h.wind_speed_10m;
+  const wDir  = h.wind_direction_10m;
+  const times = h.time;
+
+  const PAD = { top: 14, right: 16, bottom: 28, left: 38 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top  - PAD.bottom;
+
+  // 0–24 h
+  const hourFrac = i => parseInt(times[i].substring(11, 13)) + parseInt(times[i].substring(14, 16)) / 60;
+  const xOfHr = hr => PAD.left + (hr / 24) * cW;
+
+  // Y range temp
+  const tMin0 = Math.min(...temps);
+  const tMax0 = Math.max(...temps);
+  const tPad   = Math.max(1, Math.round((tMax0 - tMin0) * 0.2));
+  const tMin   = tMin0 - tPad;
+  const tMax   = tMax0 + tPad;
+  const yOfT   = v => PAD.top + (1 - (v - tMin) / (tMax - tMin)) * cH;
+
+  // Max rain for bar scaling
+  const rMax = Math.max(0.5, ...rain);
+  const rainH = cH * 0.25; // rain bars occupy bottom 25%
+  const rainBase = PAD.top + cH;
+
+  // ── Grid ──
+  ctx.lineWidth = 1;
+  const step = (tMax0 - tMin0) <= 6 ? 1 : 2;
+  for (let t = Math.ceil(tMin); t <= Math.floor(tMax); t += step) {
+    const y = yOfT(t);
+    ctx.strokeStyle = 'rgba(37,40,54,0.9)';
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(139,146,169,0.55)';
+    ctx.font = '10px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(t + '°', PAD.left - 4, y + 3.5);
+  }
+
+  // ── X axis ──
+  ctx.fillStyle = 'rgba(139,146,169,0.6)';
+  ctx.font = '10px Inter,system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  for (let hr = 0; hr <= 24; hr += 3) {
+    const x = xOfHr(hr);
+    ctx.fillText(hr.toString().padStart(2, '0') + ':00', x, H - PAD.bottom + 13);
+    ctx.strokeStyle = 'rgba(37,40,54,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+  }
+
+  // ── Rain bars ──
+  const barW = Math.max(2, cW / 24 - 2);
+  for (let i = 0; i < times.length; i++) {
+    const hr  = hourFrac(i);
+    const val = rain[i];
+    if (val <= 0) continue;
+    const x = xOfHr(hr) - barW / 2;
+    const bh = Math.min((val / rMax) * rainH, rainH);
+    ctx.fillStyle = 'rgba(56,189,248,0.35)';
+    ctx.fillRect(x, rainBase - bh, barW, bh);
+  }
+
+  // ── Temp line ──
+  if (temps.length >= 2) {
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    temps.forEach((t, i) => {
+      const x = xOfHr(hourFrac(i));
+      const y = yOfT(t);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // area fill
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
+    grad.addColorStop(0, 'rgba(96,165,250,0.20)');
+    grad.addColorStop(1, 'rgba(96,165,250,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    temps.forEach((t, i) => {
+      const x = xOfHr(hourFrac(i));
+      const y = yOfT(t);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    const lastX = xOfHr(hourFrac(temps.length - 1));
+    ctx.lineTo(lastX, PAD.top + cH);
+    ctx.lineTo(xOfHr(hourFrac(0)), PAD.top + cH);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ── Wind arrows ──
+  const arrowY = PAD.top + 6;
+  for (let i = 0; i < times.length; i++) {
+    const hr = hourFrac(i);
+    if (hr % 3 !== 0) continue;
+    const x   = xOfHr(hr);
+    const deg = wDir[i];
+    const spd = wSpd[i];
+    ctx.save();
+    ctx.translate(x, arrowY);
+    ctx.rotate((deg * Math.PI) / 180);
+    ctx.strokeStyle = 'rgba(139,146,169,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, 5);
+    ctx.lineTo(0, -5);
+    ctx.moveTo(-2.5, -1);
+    ctx.lineTo(0, -5);
+    ctx.lineTo(2.5, -1);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(139,146,169,0.45)';
+    ctx.font = '8px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(spd), x, arrowY + 14);
+  }
+
+  // ── Now line ──
+  const _nowParts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const _nowHH = parseInt(_nowParts.find(p => p.type === 'hour').value);
+  const _nowMM = parseInt(_nowParts.find(p => p.type === 'minute').value);
+  const nowHr = _nowHH + _nowMM / 60;
+  const nowX  = xOfHr(nowHr);
+  if (nowX >= PAD.left && nowX <= PAD.left + cW) {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(99,102,241,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(nowX, PAD.top); ctx.lineTo(nowX, PAD.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // ── Store geometry for hover ──
+  canvas._omGeom = { PAD, cW, cH, temps, rain, wSpd, wDir, times, tMin, tMax, rMax, rainH, hourFrac };
+}
+
+// ── Redraw now-line every minute ──
+setInterval(() => { if (omData) drawOmChart(); }, 60_000);
+
+// ── Hover tooltip ──
+(function() {
+  const canvas = document.getElementById('omChart');
+  const tip    = document.getElementById('omTooltip');
+
+  canvas.addEventListener('mousemove', e => {
+    const g = canvas._omGeom;
+    if (!g) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+
+    // find closest hour
+    let bestI = 0, bestD = Infinity;
+    for (let i = 0; i < g.times.length; i++) {
+      const x = g.PAD.left + (g.hourFrac(i) / 24) * g.cW;
+      const d = Math.abs(mx - x);
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+
+    const t   = g.temps[bestI];
+    const r   = g.rain[bestI];
+    const ws  = g.wSpd[bestI];
+    const wd  = g.wDir[bestI];
+    const timeStr = g.times[bestI];
+    const hh = timeStr.substring(11, 13);
+    const mm = timeStr.substring(14, 16);
+
+    document.getElementById('omTtTime').textContent = hh + ':' + mm;
+    document.getElementById('omTtTemp').textContent = t + '°C';
+    document.getElementById('omTtWind').textContent = ws + ' km/h ' + windDir(wd);
+    document.getElementById('omTtRain').textContent = r > 0 ? r + ' mm' : '';
+
+    const x = g.PAD.left + (g.hourFrac(bestI) / 24) * g.cW;
+    tip.style.left = Math.min(x + 10, canvas.clientWidth - 120) + 'px';
+    tip.style.top  = '8px';
+    tip.classList.add('visible');
+  });
+
+  canvas.addEventListener('mouseleave', () => tip.classList.remove('visible'));
+})();
+
+function windDir(deg) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+async function fetchOpenMeteo() {
+  try {
+    const r = await fetch(OM_API);
+    if (!r.ok) throw new Error(r.status);
+    omData = await r.json();
+    document.getElementById('omLoading').style.display = 'none';
+    drawOmChart();
+  } catch(e) {
+    console.warn('Open-Meteo fetch:', e.message);
+    document.getElementById('omLoading').textContent = 'Open-Meteo unavailable';
+  }
+}
+
+fetchOpenMeteo();
+setInterval(fetchOpenMeteo, OM_REFRESH);
+window.addEventListener('resize', () => { if (omData) drawOmChart(); });
 </script>
 </body>
 </html>
