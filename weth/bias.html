@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EGLC Bias Corrector — Polydash</title>
+  <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0c1017; }
+    input[type=range] { accent-color: #3b82f6; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    const EGLC_LAT = 51.5053;
+    const EGLC_LON = 0.0553;
+
+    function calcBias(temp, windSpeed, cloudCover, isDay, hour) {
+      let bias = 0;
+      let explanation = [];
+
+      const uhiBase = 0.6;
+      bias += uhiBase;
+
+      if (isDay) {
+        const solarFactor = Math.max(0, (100 - cloudCover) / 100);
+        const windDamping = Math.max(0.2, 1 - windSpeed / 25);
+        const solarBias = solarFactor * windDamping * 1.8;
+        bias += solarBias;
+        if (solarFactor > 0.6 && windDamping > 0.6)
+          explanation.push({ t: "Сильный солнечный нагрев бетона", v: `+${solarBias.toFixed(1)}` });
+        else if (solarFactor > 0.3)
+          explanation.push({ t: "Умеренный солнечный нагрев", v: `+${solarBias.toFixed(1)}` });
+        else
+          explanation.push({ t: "Слабый солнечный нагрев", v: `+${solarBias.toFixed(1)}` });
+      } else {
+        const nf = Math.max(0, (100 - cloudCover) / 100);
+        const nb = nf * 0.8;
+        bias += nb;
+        explanation.push({ t: "Ночной UHI: бетон отдаёт тепло", v: `+${nb.toFixed(1)}` });
+      }
+
+      if (windSpeed > 15) {
+        bias -= 0.4;
+        explanation.push({ t: "Сильный ветер перемешивает воздух", v: "-0.4" });
+      }
+      if (cloudCover > 80) {
+        bias -= 0.3;
+        explanation.push({ t: "Плотная облачность снижает UHI", v: "-0.3" });
+      }
+      if (isDay && hour >= 12 && hour <= 16 && cloudCover < 50) {
+        bias += 0.4;
+        explanation.push({ t: "Пик дневного прогрева 12–16ч", v: "+0.4" });
+      }
+
+      bias += 0.3;
+      explanation.push({ t: "Сетка модели захватывает Темзу", v: "+0.3" });
+      explanation.push({ t: "Базовый UHI Docklands", v: `+${uhiBase}` });
+
+      bias = Math.max(0, Math.min(bias, 4));
+      let conf = "medium";
+      if (cloudCover > 70 && windSpeed > 10) conf = "high";
+      if (cloudCover < 20 && windSpeed < 4 && isDay) conf = "low";
+      return { bias: Math.round(bias * 10) / 10, conf, explanation };
+    }
+
+    function App() {
+      const [mode, setMode] = useState("manual");
+      const [temp, setTemp] = useState(12.5);
+      const [wind, setWind] = useState(5);
+      const [cloud, setCloud] = useState(30);
+      const [isDay, setIsDay] = useState(true);
+      const [hour, setHour] = useState(new Date().getHours());
+      const [metar, setMetar] = useState("");
+      const [apiOk, setApiOk] = useState(null);
+      const [model, setModel] = useState("best_match");
+
+      const models = [
+        { id: "best_match", l: "Best Match", n: "ICON ~7km" },
+        { id: "ukmo_uk_deterministic_2km", l: "UKV", n: "Met Office 2km" },
+        { id: "icon_eu", l: "ICON-EU", n: "DWD 7km" },
+      ];
+
+      const doFetch = useCallback(async () => {
+        try {
+          setApiOk("loading");
+          const mp = model === "best_match" ? "" : `&models=${model}`;
+          const u = `https://api.open-meteo.com/v1/forecast?latitude=${EGLC_LAT}&longitude=${EGLC_LON}&current=temperature_2m,wind_speed_10m,cloud_cover,is_day&timezone=Europe%2FLondon${mp}`;
+          const r = await fetch(u);
+          const d = await r.json();
+          if (d.current) {
+            setTemp(d.current.temperature_2m);
+            setWind(d.current.wind_speed_10m);
+            setCloud(d.current.cloud_cover);
+            setIsDay(d.current.is_day === 1);
+            setApiOk("ok");
+            setMode("auto");
+          }
+        } catch {
+          setApiOk("error");
+          setMode("manual");
+        }
+      }, [model]);
+
+      useEffect(() => { doFetch(); }, [doFetch]);
+
+      const b = calcBias(temp, wind, cloud, isDay, hour);
+      const est = Math.round((temp + b.bias) * 10) / 10;
+      const estR = Math.round(est);
+      const delta = metar !== "" ? (parseFloat(metar) - est).toFixed(1) : null;
+      const cCol = b.conf === "high" ? "#22c55e" : b.conf === "medium" ? "#eab308" : "#ef4444";
+      const ico = cloud < 20 ? (isDay ? "☀️" : "🌙") : cloud < 50 ? "⛅" : cloud < 80 ? "🌥" : "☁️";
+
+      return (
+        <div style={{
+          fontFamily: "'Courier New', Courier, monospace",
+          background: "#0c1017", color: "#8b95a5", minHeight: "100vh", padding: 20,
+          boxSizing: "border-box"
+        }}>
+          {/* Nav */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, paddingBottom: 10, borderBottom: "1px solid #1a2030" }}>
+            <a href="/" style={{ color: "#4b5563", fontSize: 10, textDecoration: "none", border: "1px solid #1a2030", padding: "4px 10px", borderRadius: 4 }}>← Polydash</a>
+            <a href="/weth/bias.html" style={{ color: "#93c5fd", fontSize: 10, textDecoration: "none", border: "1px solid #2563eb", padding: "4px 10px", borderRadius: 4, background: "#1a2540" }}>Bias</a>
+            <a href="/weth/tracker.html" style={{ color: "#4b5563", fontSize: 10, textDecoration: "none", border: "1px solid #1a2030", padding: "4px 10px", borderRadius: 4 }}>Tracker</a>
+            <a href="/weth/forecast.html" style={{ color: "#4b5563", fontSize: 10, textDecoration: "none", border: "1px solid #1a2030", padding: "4px 10px", borderRadius: 4 }}>Forecast</a>
+          </div>
+
+          {/* Title */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, borderBottom: "1px solid #1a2030", paddingBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#e8ecf1", letterSpacing: 2 }}>EGLC BIAS CORRECTOR</div>
+              <div style={{ fontSize: 10, color: "#3e4a5c", marginTop: 3 }}>London City Airport · Polymarket Weather Trading</div>
+            </div>
+            {apiOk === "ok" && <div style={{ color: "#22c55e", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} /> LIVE
+            </div>}
+          </div>
+
+          {/* Models + status */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+            {models.map(m => (
+              <button key={m.id} onClick={() => setModel(m.id)} style={{
+                background: model === m.id ? "#1a2540" : "#10141e",
+                border: `1px solid ${model === m.id ? "#2563eb" : "#1a2030"}`,
+                color: model === m.id ? "#93c5fd" : "#4b5563",
+                padding: "6px 10px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "inherit"
+              }}>
+                {m.l} <span style={{ opacity: 0.5, fontSize: 9 }}>{m.n}</span>
+              </button>
+            ))}
+            <button onClick={doFetch} style={{
+              background: "#10141e", border: "1px solid #1a2030", color: "#4b5563",
+              padding: "6px 10px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "inherit", marginLeft: "auto"
+            }}>↻ Обновить</button>
+          </div>
+          {apiOk === "error" && <div style={{ background: "#1a0a0a", border: "1px solid #5c1a1a", color: "#f87171", padding: "8px 12px", borderRadius: 5, fontSize: 11, marginBottom: 12 }}>
+            ⚠ API недоступен. Введи данные вручную слайдерами ниже.
+          </div>}
+
+          {/* Mode */}
+          <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+            <button onClick={() => { if (apiOk === "ok") setMode("auto"); else doFetch(); }}
+              style={{ background: mode === "auto" ? "#1a2540" : "transparent", border: `1px solid ${mode === "auto" ? "#2563eb" : "#1a2030"}`, color: mode === "auto" ? "#93c5fd" : "#4b5563", padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "inherit" }}>
+              Авто
+            </button>
+            <button onClick={() => setMode("manual")}
+              style={{ background: mode === "manual" ? "#1a2540" : "transparent", border: `1px solid ${mode === "manual" ? "#2563eb" : "#1a2030"}`, color: mode === "manual" ? "#93c5fd" : "#4b5563", padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "inherit" }}>
+              Вручную
+            </button>
+          </div>
+
+          {/* Sliders */}
+          <div style={{ background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 12 }}>ДАННЫЕ OPENMETEO</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+                  <span>Температура</span><span style={{ color: "#e2e8f0", fontWeight: 600 }}>{temp}°C</span>
+                </div>
+                {mode === "manual"
+                  ? <input type="range" min={-10} max={42} step={0.5} value={temp} onChange={e => setTemp(+e.target.value)} style={{ width: "100%" }} />
+                  : <div style={{ color: "#60a5fa", fontWeight: 600, fontSize: 15 }}>{temp}°C</div>}
+              </div>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+                  <span>Ветер</span><span style={{ color: "#e2e8f0", fontWeight: 600 }}>{wind} км/ч</span>
+                </div>
+                {mode === "manual"
+                  ? <input type="range" min={0} max={50} step={1} value={wind} onChange={e => setWind(+e.target.value)} style={{ width: "100%" }} />
+                  : <div style={{ color: "#60a5fa", fontWeight: 600, fontSize: 15 }}>{wind} км/ч</div>}
+              </div>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+                  <span>Облачность</span><span style={{ color: "#e2e8f0", fontWeight: 600 }}>{cloud}%</span>
+                </div>
+                {mode === "manual"
+                  ? <input type="range" min={0} max={100} step={5} value={cloud} onChange={e => setCloud(+e.target.value)} style={{ width: "100%" }} />
+                  : <div style={{ color: "#60a5fa", fontWeight: 600, fontSize: 15 }}>{cloud}%</div>}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, marginBottom: 4 }}>Время суток</div>
+                {mode === "manual" ? <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={() => setIsDay(true)} style={{ background: isDay ? "#2a2000" : "#10141e", border: `1px solid ${isDay ? "#ca8a04" : "#1a2030"}`, color: isDay ? "#fde047" : "#4b5563", padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>☀️ День</button>
+                  <button onClick={() => setIsDay(false)} style={{ background: !isDay ? "#1a1040" : "#10141e", border: `1px solid ${!isDay ? "#7c3aed" : "#1a2030"}`, color: !isDay ? "#a78bfa" : "#4b5563", padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>🌙 Ночь</button>
+                  <span style={{ fontSize: 10, color: "#4b5563" }}>Час:</span>
+                  <input type="number" min={0} max={23} value={hour} onChange={e => setHour(+e.target.value)} style={{ width: 40, background: "#0c1017", border: "1px solid #1a2030", color: "#e2e8f0", padding: "4px", borderRadius: 3, fontSize: 11, textAlign: "center", fontFamily: "inherit" }} />
+                </div>
+                  : <div style={{ color: "#60a5fa", fontWeight: 600, fontSize: 15 }}>{isDay ? "☀️ День" : "🌙 Ночь"}</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* Main result */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center", marginBottom: 16 }}>
+            <div style={{ background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 16, textAlign: "center" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 8 }}>OPENMETEO</div>
+              <div style={{ fontSize: 28 }}>{ico}</div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#e2e8f0", marginTop: 4 }}>{temp}°C</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ color: "#f59e0b", fontWeight: 700, fontSize: 15 }}>+{b.bias}°C</div>
+              <div style={{ color: "#2a3345", fontSize: 22 }}>→</div>
+            </div>
+            <div style={{ background: "#10141e", border: "1px solid #1d4ed8", borderRadius: 7, padding: 16, textAlign: "center", boxShadow: "0 0 20px rgba(29,78,216,0.08)" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 8 }}>ОЦЕНКА METAR</div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#60a5fa" }}>{est}°C</div>
+              <div style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>округл. → <strong style={{ color: "#fbbf24" }}>{estR}°C</strong></div>
+              <div style={{ fontSize: 10, marginTop: 6, color: cCol, border: `1px solid ${cCol}`, display: "inline-block", padding: "2px 8px", borderRadius: 3 }}>
+                {b.conf === "high" ? "▲ точность высокая" : b.conf === "medium" ? "◆ точность средняя" : "▼ большой разброс"}
+              </div>
+            </div>
+          </div>
+
+          {/* METAR check */}
+          <div style={{ background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 10 }}>ПРОВЕРКА — ВВЕДИ РЕАЛЬНЫЙ METAR</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <input type="number" placeholder="14" value={metar} onChange={e => setMetar(e.target.value)}
+                style={{ width: 70, background: "#0c1017", border: "1px solid #2a3345", color: "#e2e8f0", padding: "8px 10px", borderRadius: 5, fontSize: 18, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
+              <span style={{ color: "#4b5563", fontSize: 13 }}>°C</span>
+              {delta !== null && <>
+                <span style={{ fontSize: 18, fontWeight: 700, color: Math.abs(+delta) <= 1 ? "#22c55e" : Math.abs(+delta) <= 2 ? "#eab308" : "#ef4444", marginLeft: 8 }}>
+                  Δ = {+delta > 0 ? "+" : ""}{delta}°C
+                </span>
+                <span style={{ fontSize: 10, color: "#4b5563" }}>
+                  {Math.abs(+delta) <= 0.5 ? "✓ Отлично" : Math.abs(+delta) <= 1 ? "✓ Норма" : Math.abs(+delta) <= 2 ? "⚠ Заметно" : "✗ Большое"}
+                </span>
+              </>}
+            </div>
+          </div>
+
+          {/* Breakdown */}
+          <div style={{ background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 10 }}>СОСТАВ ПОПРАВКИ</div>
+            {b.explanation.map((e, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11, borderBottom: "1px solid #131820" }}>
+                <span>{e.t}</span>
+                <span style={{ color: "#f59e0b", fontWeight: 500 }}>{e.v}°C</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, borderTop: "1px solid #1e293b", marginTop: 4 }}>
+              <span style={{ color: "#e2e8f0", fontWeight: 600 }}>Итого</span>
+              <span style={{ color: "#60a5fa", fontWeight: 700 }}>+{b.bias}°C</span>
+            </div>
+          </div>
+
+          {/* Ref table */}
+          <div style={{ background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 10 }}>ШПАРГАЛКА</div>
+            {[
+              ["☀️ Ясно + штиль", "+1.5…+3°C", "#ef4444"],
+              ["⛅ Ясно + ветер", "+0.5…+1.5°C", "#eab308"],
+              ["☁️ Пасмурно + ветер", "±0.5°C", "#22c55e"],
+              ["🌙 Ночь ясная", "+1…+2°C", "#eab308"],
+              ["🌧 Дождь", "±0.5°C", "#22c55e"],
+            ].map(([c, v, cl], i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 11, borderBottom: "1px solid #131820" }}>
+                <span style={{ color: "#cbd5e1" }}>{c}</span>
+                <span style={{ color: cl, fontWeight: 600 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ textAlign: "center", fontSize: 9, color: "#1e293b", paddingTop: 8 }}>
+            METAR округляет до целых °C · Поправка = UHI + солнце + ветер + сетка
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
