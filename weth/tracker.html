@@ -37,23 +37,28 @@
 
     const LAT = 51.5053, LON = 0.0553;
     const STORAGE_KEY = "eglc-tracker-v2";
+    function utcToLondonHour(utcH) {
+      const d = new Date();
+      d.setUTCHours(utcH, 0, 0, 0);
+      return parseInt(d.toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false }));
+    }
+
     const SCHEDULE = [
-      { utc: 9,  label: "09 UTC", note: "утренний baseline" },
-      { utc: 12, label: "12 UTC", note: "начало пикового окна" },
-      { utc: 13, label: "13 UTC", note: "пик 1" },
-      { utc: 14, label: "14 UTC", note: "пик 2 (чаще всего макс)" },
-      { utc: 15, label: "15 UTC", note: "пик 3" },
-      { utc: 17, label: "17 UTC", note: "вечерний спад" },
-    ];
+      { utcH: 9,  note: "утренний baseline" },
+      { utcH: 12, note: "начало пикового окна" },
+      { utcH: 13, note: "пик 1" },
+      { utcH: 14, note: "пик 2 (чаще всего макс)" },
+      { utcH: 15, note: "пик 3" },
+      { utcH: 17, note: "вечерний спад" },
+    ].map(s => ({ london: utcToLondonHour(s.utcH), label: `${String(utcToLondonHour(s.utcH)).padStart(2,'0')}:00`, note: s.note }));
 
     function nowLondon() {
       const d = new Date();
       return {
         date:     d.toLocaleDateString('en-CA', { timeZone: 'Europe/London' }),
-        hour:     d.getUTCHours(),
+        hour:     parseInt(d.toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false })),
         full:     d.toISOString(),
         localStr: d.toLocaleTimeString("ru-RU", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" }),
-        utcStr:   `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} UTC`,
       };
     }
 
@@ -122,7 +127,7 @@
         const bias = calcBias(omTemp, omWind||0, omCloud||0, isDay, t.hour);
         const estimated = Math.round((omTemp+bias)*10)/10;
         const rec = {
-          id: Date.now(), date: t.date, utcHour: t.hour, utcStr: t.utcStr, localStr: t.localStr,
+          id: Date.now(), date: t.date, londonHour: t.hour, localStr: t.localStr,
           timestamp: t.full, omTemp, omWind: omWind||0, omWindDir: fetchResult?.wind_direction_10m??null,
           omCloud: omCloud||0, omHumidity: fetchResult?.relative_humidity_2m??null,
           omPressure: fetchResult?.surface_pressure??null, isDay, bias, estimated,
@@ -148,8 +153,8 @@
       }).sort((a,b)=>b.date.localeCompare(a.date));
 
       const t = nowLondon();
-      const currentSlot = SCHEDULE.find(s => s.utc === t.hour) || null;
-      const nextSlot    = SCHEDULE.find(s => s.utc > t.hour) || SCHEDULE[0];
+      const currentSlot = SCHEDULE.find(s => s.london === t.hour) || null;
+      const nextSlot    = SCHEDULE.find(s => s.london > t.hour) || SCHEDULE[0];
 
       const deleteRecord = (id) => { const u=records.filter(r=>r.id!==id); setRecords(u); save(u); };
       const clearAll = async () => {
@@ -185,8 +190,8 @@
             <div style=${{ fontSize:9, fontWeight:700, color:"#3e4a5c", letterSpacing:1.5, marginBottom:8 }}>РАСПИСАНИЕ ЗАПИСЕЙ</div>
             <div style=${{ display:"flex", gap:6, flexWrap:"wrap" }}>
               ${SCHEDULE.map(s => {
-                const isNow = s.utc === t.hour, isPast = s.utc < t.hour;
-                const todayDone = records.some(r => r.date===t.date && r.utcHour===s.utc);
+                const isNow = s.london === t.hour, isPast = s.london < t.hour;
+                const todayDone = records.some(r => r.date===t.date && (r.londonHour ?? r.utcHour) === s.london);
                 return html`
                   <div key=${s.utc} style=${{ padding:"6px 10px", borderRadius:5, fontSize:10,
                     background: isNow?"#1a2540":"#10141e",
@@ -238,7 +243,7 @@
               </div>
             </div>`}
             <button onClick=${saveRecord} disabled=${!manualTemp} style=${{ width:"100%", padding:"14px", borderRadius:7, border:"1px solid #166534", background:"#0a2010", color:"#22c55e", fontSize:14, fontWeight:700, cursor:manualTemp?"pointer":"not-allowed", fontFamily:"inherit", marginTop:4, opacity:manualTemp?1:0.4 }}>
-              💾 Сохранить запись (${t.utcStr})
+              💾 Сохранить запись (${t.localStr} London)
             </button>
           </div>`}
 
@@ -247,13 +252,13 @@
             <div style=${{ overflowX:"auto" }}>
               <table style=${{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
                 <thead><tr style=${{ borderBottom:"1px solid #1e293b" }}>
-                  ${["Дата","UTC","OM°C","Ветер","Обл%","Bias","Оценка","METAR","Δ",""].map((h,i)=>html`<th key=${i} style=${{ padding:"8px 4px", textAlign:"left", color:"#4b5563", fontWeight:600, fontSize:9, letterSpacing:1 }}>${h}</th>`)}
+                  ${["Дата","London","OM°C","Ветер","Обл%","Bias","Оценка","METAR","Δ",""].map((h,i)=>html`<th key=${i} style=${{ padding:"8px 4px", textAlign:"left", color:"#4b5563", fontWeight:600, fontSize:9, letterSpacing:1 }}>${h}</th>`)}
                 </tr></thead>
                 <tbody>
                   ${records.map(r => html`
                     <tr key=${r.id} style=${{ borderBottom:"1px solid #131820" }}>
                       <td style=${S.td}>${r.date.slice(5)}</td>
-                      <td style=${S.td}>${r.utcStr}</td>
+                      <td style=${S.td}>${r.localStr}</td>
                       <td style=${{ ...S.td, color:"#e2e8f0" }}>${r.omTemp}</td>
                       <td style=${S.td}>${r.omWind}</td>
                       <td style=${S.td}>${r.omCloud}</td>
