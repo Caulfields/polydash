@@ -51,7 +51,7 @@
         hour: d.getUTCHours(),
         min: d.getUTCMinutes(),
         full: d.toISOString(),
-        localStr: d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+        localStr: d.toLocaleTimeString("ru-RU", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" }),
         utcStr: `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} UTC`,
       };
     }
@@ -220,7 +220,7 @@
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>{t.utcStr}</div>
-              <div style={{ fontSize: 10, color: "#4b5563" }}>{t.localStr} local</div>
+              <div style={{ fontSize: 10, color: "#4b5563" }}>{t.localStr} London</div>
             </div>
           </div>
 

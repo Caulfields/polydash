@@ -367,7 +367,7 @@
           </div>
 
           <div style={{ textAlign: 'center', fontSize: 9, color: '#1e293b', marginTop: 10 }}>
-            {lastFetch && `Обновлено: ${lastFetch.toLocaleTimeString('ru-RU')}`} · ★ = прогнозируемый пик
+            {lastFetch && `Обновлено: ${lastFetch.toLocaleTimeString('ru-RU', { timeZone: 'Europe/London' })}`} · ★ = прогнозируемый пик
           </div>
         </div>
       );

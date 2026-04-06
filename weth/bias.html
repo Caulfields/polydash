@@ -79,7 +79,7 @@
       const [wind, setWind] = useState(5);
       const [cloud, setCloud] = useState(30);
       const [isDay, setIsDay] = useState(true);
-      const [hour, setHour] = useState(new Date().getHours());
+      const [hour, setHour] = useState(parseInt(new Date().toLocaleString("en-GB", { timeZone: "Europe/London", hour: "numeric", hour12: false })));
       const [metar, setMetar] = useState("");
       const [apiOk, setApiOk] = useState(null);
       const [model, setModel] = useState("best_match");
