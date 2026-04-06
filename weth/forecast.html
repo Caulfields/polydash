@@ -186,13 +186,13 @@
       const [lastFetch, setLastFetch] = useState(null);
       const [metarPoints, setMetarPoints] = useState({});
       const [metarInput, setMetarInput] = useState('');
-      const [metarHour, setMetarHour] = useState(new Date().getUTCHours());
+      const [metarHour, setMetarHour] = useState(parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false })));
 
       const doFetch = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-          const u = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,wind_speed_10m,cloud_cover,relative_humidity_2m&daily=sunrise,sunset&timezone=UTC&forecast_days=1`;
+          const u = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,wind_speed_10m,cloud_cover,relative_humidity_2m&daily=sunrise,sunset&timezone=Europe%2FLondon&forecast_days=1`;
           const r = await fetch(u);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const d = await r.json();
@@ -262,8 +262,8 @@
       const maxCorrected = chartData.reduce((max, d) => d.corrected > max.corrected ? d : max, chartData[0]);
       const maxOM = chartData.reduce((max, d) => d.om > max.om ? d : max, chartData[0]);
       const _now = new Date();
-      const nowH = _now.getUTCHours();
-      const nowFrac = nowH + _now.getUTCMinutes() / 60;
+      const nowH = parseInt(_now.toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false }));
+      const nowFrac = nowH + _now.getMinutes() / 60;
 
       return (
         <div style={S.wrap}>
