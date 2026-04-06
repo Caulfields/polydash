@@ -59,11 +59,22 @@
         const svg=svgRef.current; if(!svg) return;
         const rect=svg.getBoundingClientRect();
         const mx=(e.clientX-rect.left)*(W/rect.width);
-        const idx=Math.round(((mx-PAD.left)/w)*(chartData.length-1));
-        if (idx>=0&&idx<chartData.length) setTooltip({ idx });
+        const frac=Math.max(0, Math.min(chartData.length-1, ((mx-PAD.left)/w)*(chartData.length-1)));
+        setTooltip({ frac });
       };
 
-      const d = tooltip ? chartData[tooltip.idx] : null;
+      const interp = tooltip ? (() => {
+        const f=tooltip.frac, lo=Math.floor(f), hi=Math.min(lo+1, chartData.length-1), t=f-lo;
+        const a=chartData[lo], b=chartData[hi];
+        const om=Math.round((a.om+(b.om-a.om)*t)*10)/10;
+        const corrected=Math.round((a.corrected+(b.corrected-a.corrected)*t)*10)/10;
+        const bias=Math.round((a.bias+(b.bias-a.bias)*t)*10)/10;
+        const totalMin=Math.round(f*60), hrs=Math.floor(totalMin/60), mins=totalMin%60;
+        const label=`${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}`;
+        const metar=t<0.5?a.metar:b.metar;
+        return { om, corrected, correctedRound:Math.round(corrected), bias, label, isDay:a.isDay, wind:a.wind, cloud:a.cloud, metar };
+      })() : null;
+      const tooltipX = tooltip ? PAD.left+(tooltip.frac/(chartData.length-1))*w : null;
       const nowX = PAD.left+(nowFrac/23)*w;
 
       return html`
@@ -89,21 +100,21 @@
             ${chartData.map((d,i)=>d.metar!=null?html`
               <circle key=${i} cx=${xScale(i)} cy=${yScale(d.metar)} r="5" fill="#fbbf24" stroke="#0c1017" stroke-width="2"/>
             `:null)}
-            ${tooltip&&d&&html`
-              <line x1=${xScale(tooltip.idx)} x2=${xScale(tooltip.idx)} y1=${PAD.top} y2=${PAD.top+hh} stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
-              <circle cx=${xScale(tooltip.idx)} cy=${yScale(d.om)} r="3" fill="#475569"/>
-              <circle cx=${xScale(tooltip.idx)} cy=${yScale(d.corrected)} r="4" fill="#3b82f6"/>
+            ${tooltip&&interp&&html`
+              <line x1=${tooltipX} x2=${tooltipX} y1=${PAD.top} y2=${PAD.top+hh} stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+              <circle cx=${tooltipX} cy=${yScale(interp.om)} r="3" fill="#475569"/>
+              <circle cx=${tooltipX} cy=${yScale(interp.corrected)} r="4" fill="#3b82f6"/>
             `}
           </svg>
 
-          ${tooltip&&d&&html`
+          ${tooltip&&interp&&html`
             <div style=${{ position:'absolute', top:8, right:8, background:'#1a2030', border:'1px solid #2a3345', borderRadius:6, padding:'8px 12px', fontSize:11, color:'#94a3b8', pointerEvents:'none', minWidth:160 }}>
-              <div style=${{ fontWeight:700, color:'#e2e8f0', marginBottom:4 }}>${d.label} London ${d.isDay?'☀️':'🌙'}</div>
-              <div>OpenMeteo: <strong style=${{ color:'#94a3b8' }}>${d.om}°C</strong></div>
-              <div>Поправка: <strong style=${{ color:'#f59e0b' }}>+${d.bias}°C</strong></div>
-              <div>METAR прогноз: <strong style=${{ color:'#60a5fa' }}>${d.corrected}°C</strong> (≈${d.correctedRound}°C)</div>
-              ${d.metar!=null&&html`<div>METAR факт: <strong style=${{ color:'#fbbf24' }}>${d.metar}°C</strong> · Δ=${(d.metar-d.corrected>0?'+':'')}${(d.metar-d.corrected).toFixed(1)}°C</div>`}
-              <div style=${{ marginTop:4, color:'#4b5563', fontSize:10 }}>Ветер ${d.wind} · Обл. ${d.cloud}%</div>
+              <div style=${{ fontWeight:700, color:'#e2e8f0', marginBottom:4 }}>${interp.label} London ${interp.isDay?'☀️':'🌙'}</div>
+              <div>OpenMeteo: <strong style=${{ color:'#94a3b8' }}>${interp.om}°C</strong></div>
+              <div>Поправка: <strong style=${{ color:'#f59e0b' }}>+${interp.bias}°C</strong></div>
+              <div>METAR прогноз: <strong style=${{ color:'#60a5fa' }}>${interp.corrected}°C</strong> (≈${interp.correctedRound}°C)</div>
+              ${interp.metar!=null&&html`<div>METAR факт: <strong style=${{ color:'#fbbf24' }}>${interp.metar}°C</strong> · Δ=${(interp.metar-interp.corrected>0?'+':'')}${(interp.metar-interp.corrected).toFixed(1)}°C</div>`}
+              <div style=${{ marginTop:4, color:'#4b5563', fontSize:10 }}>Ветер ${interp.wind} · Обл. ${interp.cloud}%</div>
             </div>
           `}
 
