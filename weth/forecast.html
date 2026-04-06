@@ -43,7 +43,7 @@
     }
 
     // Simple SVG line chart
-    function SvgChart({ chartData, nowH, maxCorrectedHour }) {
+    function SvgChart({ chartData, nowH, nowFrac, maxCorrectedHour }) {
       const [tooltip, setTooltip] = useState(null);
       const svgRef = useRef(null);
 
@@ -111,14 +111,13 @@
               );
             })}
 
-            {/* Current hour reference line */}
+            {/* Current time reference line — exact position using fractional hour */}
             {(() => {
-              const nowIdx = chartData.findIndex(d => d.hour === nowH);
-              if (nowIdx < 0) return null;
+              const x = PAD.left + (nowFrac / 23) * w;
               return (
                 <g>
-                  <line x1={xScale(nowIdx)} x2={xScale(nowIdx)} y1={PAD.top} y2={PAD.top + h} stroke="#334155" strokeWidth="1" strokeDasharray="4 3" />
-                  <text x={xScale(nowIdx)} y={PAD.top - 2} textAnchor="middle" fontSize="8" fill="#4b5563">сейчас</text>
+                  <line x1={x} x2={x} y1={PAD.top} y2={PAD.top + h} stroke="#334155" strokeWidth="1" strokeDasharray="4 3" />
+                  <text x={x} y={PAD.top - 2} textAnchor="middle" fontSize="8" fill="#4b5563">сейчас</text>
                 </g>
               );
             })()}
@@ -262,7 +261,9 @@
 
       const maxCorrected = chartData.reduce((max, d) => d.corrected > max.corrected ? d : max, chartData[0]);
       const maxOM = chartData.reduce((max, d) => d.om > max.om ? d : max, chartData[0]);
-      const nowH = new Date().getUTCHours();
+      const _now = new Date();
+      const nowH = _now.getUTCHours();
+      const nowFrac = nowH + _now.getUTCMinutes() / 60;
 
       return (
         <div style={S.wrap}>
@@ -306,7 +307,7 @@
 
           {/* Chart */}
           <div style={{ ...S.card, padding: 12 }}>
-            <SvgChart chartData={chartData} nowH={nowH} maxCorrectedHour={maxCorrected.hour} />
+            <SvgChart chartData={chartData} nowH={nowH} nowFrac={nowFrac} maxCorrectedHour={maxCorrected.hour} />
           </div>
 
           {/* Add METAR */}
