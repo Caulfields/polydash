@@ -213,8 +213,8 @@ const historicMetar = {};
 function rPad() { return metarVisible && metarPts.length ? PAD_RIGHT_METAR : PAD.right; }
 
 // ── Date utils ────────────────────────────────────────────────────────────────
-function todayIso()     { return new Date().toISOString().slice(0, 10); }
-function yesterdayIso() { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+function todayIso()     { return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); }
+function yesterdayIso() { return new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); }
 
 function dateToSlug(c, iso) {
   const [y, m, d] = iso.split('-').map(Number);

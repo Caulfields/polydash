@@ -47,7 +47,7 @@
     function nowUTC() {
       const d = new Date();
       return {
-        date: d.toISOString().slice(0, 10),
+        date: d.toLocaleDateString('en-CA', { timeZone: 'Europe/London' }),
         hour: d.getUTCHours(),
         min: d.getUTCMinutes(),
         full: d.toISOString(),
