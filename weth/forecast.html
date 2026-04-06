@@ -130,11 +130,18 @@
     const todayLondon = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
     const METAR_KEY = () => `eglc-forecast-metar-${todayLondon()}`;
 
+    const MODELS = [
+      { id: 'best_match',                  label: 'Best Match', note: 'ICON ~7km' },
+      { id: 'ukmo_uk_deterministic_2km',   label: 'UKV',        note: 'Met Office 2km' },
+      { id: 'icon_eu',                     label: 'ICON-EU',    note: 'DWD 7km' },
+    ];
+
     function App() {
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [lastFetch, setLastFetch] = useState(null);
+      const [model, setModel] = useState('best_match');
       const [metarPoints, setMetarPoints] = useState(() => {
         try { return JSON.parse(localStorage.getItem(METAR_KEY()) || '{}'); } catch { return {}; }
       });
@@ -146,12 +153,13 @@
       const doFetch = useCallback(async () => {
         setLoading(true); setError(null);
         try {
-          const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,wind_speed_10m,cloud_cover,relative_humidity_2m&daily=sunrise,sunset&timezone=Europe%2FLondon&forecast_days=1`);
+          const mp = model === 'best_match' ? '' : `&models=${model}`;
+          const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,wind_speed_10m,cloud_cover,relative_humidity_2m&daily=sunrise,sunset&timezone=Europe%2FLondon&forecast_days=1${mp}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           setData(await r.json()); setLastFetch(new Date());
         } catch(e) { setError(e.message); }
         setLoading(false);
-      }, []);
+      }, [model]);
 
       useEffect(() => {
         doFetch();
@@ -216,6 +224,14 @@
               <div style=${S.sub}>Прогноз METAR с поправкой на bias</div>
             </div>
             <button onClick=${doFetch} style=${S.refreshBtn}>↻</button>
+          </div>
+
+          <div style=${{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap' }}>
+            ${MODELS.map(m => html`
+              <button key=${m.id} onClick=${() => setModel(m.id)} style=${{ background:model===m.id?'#1a2540':'#10141e', border:`1px solid ${model===m.id?'#2563eb':'#1a2030'}`, color:model===m.id?'#93c5fd':'#4b5563', padding:'6px 10px', borderRadius:5, cursor:'pointer', fontSize:10, fontFamily:'inherit' }}>
+                ${m.label} <span style=${{ opacity:0.5, fontSize:9 }}>${m.note}</span>
+              </button>
+            `)}
           </div>
 
           <div style=${{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:14 }}>
