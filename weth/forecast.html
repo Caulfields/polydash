@@ -38,6 +38,35 @@
       return Math.round(Math.max(0,Math.min(bias,4))*10)/10;
     }
 
+    function buildRows(data, metarPoints, sunriseH, sunsetH) {
+      const hourly=data?.hourly||{}, times=hourly.time||[], temps=hourly.temperature_2m||[];
+      const winds=hourly.wind_speed_10m||[], clouds=hourly.cloud_cover||[], humids=hourly.relative_humidity_2m||[];
+      return times.map((t,i) => {
+        const h=parseInt(t.slice(11,13)), om=temps[i], w=winds[i]||0, c=clouds[i]||0;
+        const day=h>=sunriseH&&h<sunsetH;
+        const bias=calcBias(w,c,day,h), corrected=Math.round((om+bias)*10)/10;
+        return { hour:h, label:`${String(h).padStart(2,'0')}:00`, om, wind:w, cloud:c, humidity:humids[i]||0,
+          bias, corrected, correctedRound:Math.round(corrected), isDay:day, metar:metarPoints[h]??null };
+      });
+    }
+
+    function downloadCSV(archive) {
+      const headers = ['London','UKV OM°C','UKV Bias','UKV→METAR°C','ICON OM°C','ICON Bias','ICON→METAR°C','Обл%','Ветер км/ч','Влажн%','METAR факт°C'];
+      const lines = [headers.join(',')];
+      archive.rows.forEach(r => {
+        lines.push([r.hour, r.ukv_om??'', r.ukv_bias??'', r.ukv_metar??'',
+          r.icon_om??'', r.icon_bias??'', r.icon_metar??'',
+          r.cloud??'', r.wind??'', r.humidity??'', r.metar_fact??''].join(','));
+      });
+      const blob = new Blob(['\uFEFF'+lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href=url; a.download=`EGLC_${archive.dateTag}.csv`;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    // ── Original chart (single model) ──────────────────────────────────────
     function SvgChart({ chartData, nowFrac }) {
       const [tooltip, setTooltip] = useState(null);
       const svgRef = useRef(null);
@@ -127,21 +156,77 @@
       `;
     }
 
+    // ── Archive snapshot viewer ────────────────────────────────────────────
+    function ArchiveTable({ rows }) {
+      const maxUKV  = rows.reduce((m,r)=>r.ukv_metar>m.ukv_metar?r:m, rows[0]);
+      const maxICON = rows.reduce((m,r)=>r.icon_metar>m.icon_metar?r:m, rows[0]);
+      return html`
+        <div style=${{ overflowX:'auto', marginTop:10 }}>
+          <table style=${{ width:'100%', borderCollapse:'collapse', fontSize:10 }}>
+            <thead>
+              <tr>
+                <th style=${S.th} rowspan="2">London</th>
+                <th style=${{ ...S.th, color:'#3b82f6', textAlign:'center', borderBottom:'none' }} colspan="4">UKV Met Office</th>
+                <th style=${{ ...S.th, color:'#22d3ee', textAlign:'center', borderBottom:'none' }} colspan="4">ICON-EU DWD</th>
+                <th style=${{ ...S.th, color:'#fbbf24' }} rowspan="2">Факт</th>
+                <th style=${S.th} rowspan="2">Δ</th>
+              </tr>
+              <tr>
+                <th style=${{ ...S.th, color:'#3b82f6' }}>→METAR</th>
+                <th style=${S.th}>Обл</th>
+                <th style=${S.th}>Ветер</th>
+                <th style=${{ ...S.th, color:'#f59e0b' }}>Bias</th>
+                <th style=${{ ...S.th, color:'#22d3ee' }}>→METAR</th>
+                <th style=${S.th}>Обл</th>
+                <th style=${S.th}>Ветер</th>
+                <th style=${{ ...S.th, color:'#f59e0b' }}>Bias</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => {
+                const isPeakUKV  = r.ukv_metar  === maxUKV.ukv_metar;
+                const isPeakICON = r.icon_metar === maxICON.icon_metar;
+                const delta = r.metar_fact != null ? r.metar_fact - r.ukv_metar : null;
+                return html`
+                  <tr key=${r.hour} style=${{ borderBottom:'1px solid #0e1320' }}>
+                    <td style=${{ ...S.td2, color:'#64748b' }}>${r.hour}${r.isDay?'':' 🌙'}</td>
+                    <td style=${{ ...S.td2, color:'#60a5fa', fontWeight:isPeakUKV?700:500 }}>${r.ukv_metar??'—'}°C${isPeakUKV?' ★':''}</td>
+                    <td style=${{ ...S.td2, color:r.ukv_cloud>70?'#64748b':r.ukv_cloud<30?'#fde047':'#94a3b8' }}>${r.ukv_cloud??'—'}%</td>
+                    <td style=${S.td2}>${r.ukv_wind??'—'}</td>
+                    <td style=${{ ...S.td2, color:'#f59e0b' }}>+${r.ukv_bias}</td>
+                    <td style=${{ ...S.td2, color:'#22d3ee', fontWeight:isPeakICON?700:500 }}>${r.icon_metar??'—'}°C${isPeakICON?' ★':''}</td>
+                    <td style=${{ ...S.td2, color:r.icon_cloud>70?'#64748b':r.icon_cloud<30?'#fde047':'#94a3b8' }}>${r.icon_cloud??'—'}%</td>
+                    <td style=${S.td2}>${r.icon_wind??'—'}</td>
+                    <td style=${{ ...S.td2, color:'#f59e0b' }}>+${r.icon_bias??'—'}</td>
+                    <td style=${{ ...S.td2, color:'#fbbf24', fontWeight:600 }}>${r.metar_fact??''}</td>
+                    <td style=${{ ...S.td2, color:delta==null?'transparent':Math.abs(delta)<=1?'#22c55e':'#ef4444', fontWeight:600 }}>
+                      ${delta!=null?(delta>0?'+':'')+delta.toFixed(1):''}
+                    </td>
+                  </tr>`;
+              })}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
     const todayLondon = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
     const METAR_KEY = () => `eglc-forecast-metar-${todayLondon()}`;
 
     const MODELS = [
-      { id: 'best_match',                  label: 'Best Match', note: 'ICON ~7km' },
-      { id: 'ukmo_uk_deterministic_2km',   label: 'UKV',        note: 'Met Office 2km' },
-      { id: 'icon_eu',                     label: 'ICON-EU',    note: 'DWD 7km' },
+      { id: 'best_match',                label: 'Best Match', note: 'ICON ~7km' },
+      { id: 'ukmo_uk_deterministic_2km', label: 'UKV',        note: 'Met Office 2km' },
+      { id: 'icon_eu',                   label: 'ICON-EU',    note: 'DWD 7km' },
     ];
 
     function App() {
-      const [data, setData] = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
-      const [lastFetch, setLastFetch] = useState(null);
-      const [model, setModel] = useState('best_match');
+      const [data,     setData]     = useState(null);
+      const [dataUKV,  setDataUKV]  = useState(null);
+      const [dataICON, setDataICON] = useState(null);
+      const [loading,  setLoading]  = useState(true);
+      const [error,    setError]    = useState(null);
+      const [lastFetch,setLastFetch]= useState(null);
+      const [model,    setModel]    = useState('best_match');
       const [metarPoints, setMetarPoints] = useState(() => {
         try { return JSON.parse(localStorage.getItem(METAR_KEY()) || '{}'); } catch { return {}; }
       });
@@ -149,14 +234,23 @@
       const [metarHour, setMetarHour] = useState(
         parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false }))
       );
+      const [archives,   setArchives]   = useState([]);
+      const [expandedId, setExpandedId] = useState(null);
 
       const doFetch = useCallback(async () => {
         setLoading(true); setError(null);
         try {
+          const base = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,wind_speed_10m,cloud_cover,relative_humidity_2m&daily=sunrise,sunset&timezone=Europe%2FLondon&forecast_days=1`;
           const mp = model === 'best_match' ? '' : `&models=${model}`;
-          const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,wind_speed_10m,cloud_cover,relative_humidity_2m&daily=sunrise,sunset&timezone=Europe%2FLondon&forecast_days=1${mp}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          setData(await r.json()); setLastFetch(new Date());
+          const [rChart, rUKV, rICON] = await Promise.all([
+            fetch(base + mp),
+            fetch(base + '&models=ukmo_uk_deterministic_2km'),
+            fetch(base + '&models=icon_eu'),
+          ]);
+          if (!rChart.ok) throw new Error(`HTTP ${rChart.status}`);
+          const [dChart, dUKV, dICON] = await Promise.all([rChart.json(), rUKV.ok?rUKV.json():null, rICON.ok?rICON.json():null]);
+          setData(dChart); setDataUKV(dUKV); setDataICON(dICON);
+          setLastFetch(new Date());
         } catch(e) { setError(e.message); }
         setLoading(false);
       }, [model]);
@@ -173,10 +267,19 @@
         setMetarPoints(updated);
         try { localStorage.setItem(METAR_KEY(), JSON.stringify(updated)); } catch {}
         setMetarInput('');
+        // sync metar_fact into snapshots taken today
+        const today = todayLondon();
+        setArchives(prev => prev.map(arch => {
+          if (arch.dateKey !== today) return arch;
+          return { ...arch, rows: arch.rows.map(r => {
+            const h = parseInt(r.hour); // "15:00" → 15
+            return updated[h] !== undefined ? { ...r, metar_fact: updated[h] } : r;
+          })};
+        }));
       };
 
-      if (loading&&!data) return html`<div style=${{ ...S.wrap }}><div style=${S.loading}>📡 Загрузка OpenMeteo...</div></div>`;
-      if (error&&!data) return html`<div style=${{ ...S.wrap }}><div style=${S.errBox}>
+      if (loading&&!data) return html`<div style=${S.wrap}><div style=${S.loading}>📡 Загрузка OpenMeteo...</div></div>`;
+      if (error&&!data)   return html`<div style=${S.wrap}><div style=${S.errBox}>
         <div style=${{ fontSize:14, marginBottom:8 }}>⚠ Не удалось загрузить данные</div>
         <div style=${{ fontSize:11, color:'#94a3b8', marginBottom:10 }}>${error}</div>
         <button onClick=${doFetch} style=${S.retryBtn}>↻ Попробовать снова</button>
@@ -199,11 +302,33 @@
           bias, corrected, correctedRound:Math.round(corrected), isDay:day, metar:metarPoints[h]??null };
       });
 
+      const rowsUKV  = dataUKV  ? buildRows(dataUKV,  metarPoints, sunriseH, sunsetH) : [];
+      const rowsICON = dataICON ? buildRows(dataICON, metarPoints, sunriseH, sunsetH) : [];
+
       const maxCor = chartData.reduce((m,d)=>d.corrected>m.corrected?d:m, chartData[0]);
       const maxOM  = chartData.reduce((m,d)=>d.om>m.om?d:m, chartData[0]);
       const _now   = new Date();
       const nowH   = parseInt(_now.toLocaleString('en-GB',{timeZone:'Europe/London',hour:'numeric',hour12:false}));
       const nowFrac = nowH + _now.getMinutes()/60;
+
+      const saveArchive = () => {
+        if (!rowsUKV.length && !rowsICON.length) return;
+        const now = new Date();
+        const dateTag = now.toLocaleDateString('ru-RU',{timeZone:'Europe/London'}).replace(/\./g,'-')+'_'+now.toLocaleTimeString('ru-RU',{timeZone:'Europe/London'}).replace(/:/g,'-');
+        const rows = rowsUKV
+          .filter(ukv => ukv.hour >= 7 && ukv.hour <= 20)
+          .map((ukv,i) => {
+            const srcIdx = rowsUKV.indexOf(ukv);
+            const icon = rowsICON[srcIdx]||{};
+            return { hour:ukv.label,
+              ukv_om:ukv.om, ukv_bias:ukv.bias, ukv_metar:ukv.correctedRound, ukv_cloud:ukv.cloud, ukv_wind:ukv.wind,
+              icon_om:icon.om??null, icon_bias:icon.bias??null, icon_metar:icon.correctedRound??null, icon_cloud:icon.cloud??null, icon_wind:icon.wind??null,
+              metar_fact:ukv.metar, isDay:ukv.isDay };
+          });
+        const id = Date.now();
+        setArchives(prev => [{ id, timestamp:now, dateTag, dateKey:todayLondon(), rows }, ...prev]);
+        setExpandedId(id);
+      };
 
       const navLink = (href,label,active) => html`
         <a href=${href} style=${{ color:active?'#93c5fd':'#4b5563', fontSize:10, textDecoration:'none', border:`1px solid ${active?'#2563eb':'#1a2030'}`, padding:'4px 10px', borderRadius:4, background:active?'#1a2540':'transparent' }}>${label}</a>
@@ -260,26 +385,37 @@
           </div>
 
           <div style=${{ ...S.card, padding:'14px 8px' }}>
-            <div style=${S.cardTitle}>ПОЧАСОВОЙ ПРОГНОЗ</div>
+            <div style=${{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, paddingLeft:6 }}>
+              <div style=${S.cardTitle}>ПОЧАСОВОЙ ПРОГНОЗ</div>
+              <button onClick=${saveArchive} style=${S.archiveBtn}>⬇ Сохранить снимок</button>
+            </div>
             <div style=${{ overflowX:'auto' }}>
               <table style=${{ width:'100%', borderCollapse:'collapse', fontSize:10 }}>
                 <thead><tr>
-                  ${['London','OM','Обл','Ветер','Bias','→METAR','Факт','Δ'].map((h,i)=>html`<th key=${i} style=${{ padding:'6px 3px', textAlign:'right', color:'#3e4a5c', fontWeight:600, fontSize:8, letterSpacing:0.5, borderBottom:'1px solid #1a2030' }}>${h}</th>`)}
+                  <th style=${S.th}>London</th>
+                  <th style=${{ ...S.th, color:'#3b82f6' }}>UKV→METAR</th>
+                  <th style=${{ ...S.th, color:'#22d3ee' }}>ICON→METAR</th>
+                  <th style=${S.th}>Обл</th>
+                  <th style=${S.th}>Ветер</th>
+                  <th style=${S.th}>Bias</th>
+                  <th style=${{ ...S.th, color:'#fbbf24' }}>Факт</th>
+                  <th style=${S.th}>Δ</th>
                 </tr></thead>
                 <tbody>
-                  ${chartData.map(d=>{
-                    const isNow=d.hour===nowH, isPeak=d.hour===maxCor.hour;
+                  ${rowsUKV.map((ukv,i) => {
+                    const icon = rowsICON[i]||{};
+                    const isNow=ukv.hour===nowH, isPeakUKV=maxCor&&ukv.hour===maxCor.hour;
                     return html`
-                      <tr key=${d.hour} style=${{ background:isNow?'#111d2e':'transparent', borderBottom:'1px solid #0e1320' }}>
-                        <td style=${{ ...S.td2, color:isNow?'#93c5fd':'#64748b', fontWeight:isNow?700:400 }}>${d.label} ${d.isDay?'':'🌙'}</td>
-                        <td style=${{ ...S.td2, color:'#94a3b8' }}>${d.om}</td>
-                        <td style=${{ ...S.td2, color:d.cloud>70?'#64748b':d.cloud<30?'#fde047':'#94a3b8' }}>${d.cloud}%</td>
-                        <td style=${S.td2}>${d.wind}</td>
-                        <td style=${{ ...S.td2, color:'#f59e0b' }}>+${d.bias}</td>
-                        <td style=${{ ...S.td2, color:'#60a5fa', fontWeight:isPeak?700:500 }}>${d.correctedRound}°C ${isPeak?'★':''}</td>
-                        <td style=${{ ...S.td2, color:'#fbbf24', fontWeight:600 }}>${d.metar??''}</td>
-                        <td style=${{ ...S.td2, color:d.metar==null?'transparent':Math.abs(d.metar-d.corrected)<=1?'#22c55e':'#ef4444', fontWeight:600 }}>
-                          ${d.metar!=null?((d.metar-d.corrected)>0?'+':'')+(d.metar-d.corrected).toFixed(1):''}
+                      <tr key=${ukv.hour} style=${{ background:isNow?'#111d2e':'transparent', borderBottom:'1px solid #0e1320' }}>
+                        <td style=${{ ...S.td2, color:isNow?'#93c5fd':'#64748b', fontWeight:isNow?700:400 }}>${ukv.label}${ukv.isDay?'':' 🌙'}</td>
+                        <td style=${{ ...S.td2, color:'#60a5fa', fontWeight:isPeakUKV?700:500 }}>${ukv.correctedRound}°C${isPeakUKV?' ★':''}</td>
+                        <td style=${{ ...S.td2, color:'#22d3ee' }}>${icon.correctedRound!=null?`${icon.correctedRound}°C`:'—'}</td>
+                        <td style=${{ ...S.td2, color:ukv.cloud>70?'#64748b':ukv.cloud<30?'#fde047':'#94a3b8' }}>${ukv.cloud}%</td>
+                        <td style=${S.td2}>${ukv.wind}</td>
+                        <td style=${{ ...S.td2, color:'#f59e0b' }}>+${ukv.bias}</td>
+                        <td style=${{ ...S.td2, color:'#fbbf24', fontWeight:600 }}>${ukv.metar??''}</td>
+                        <td style=${{ ...S.td2, color:ukv.metar==null?'transparent':Math.abs(ukv.metar-ukv.corrected)<=1?'#22c55e':'#ef4444', fontWeight:600 }}>
+                          ${ukv.metar!=null?((ukv.metar-ukv.corrected)>0?'+':'')+(ukv.metar-ukv.corrected).toFixed(1):''}
                         </td>
                       </tr>`;
                   })}
@@ -287,6 +423,35 @@
               </table>
             </div>
           </div>
+
+          ${archives.length>0&&html`
+            <div style=${S.card}>
+              <div style=${S.cardTitle}>АРХИВ СНИМКОВ (${archives.length})</div>
+              <div style=${{ display:'flex', flexDirection:'column', gap:6 }}>
+                ${archives.map((arch,idx)=>html`
+                  <div key=${arch.id}>
+                    <div style=${{ ...S.archiveRow, cursor:'pointer' }} onClick=${()=>setExpandedId(expandedId===arch.id?null:arch.id)}>
+                      <div style=${{ flex:1, display:'flex', alignItems:'center', gap:10 }}>
+                        <span style=${{ color:'#64748b', fontSize:10 }}>${expandedId===arch.id?'▾':'▸'}</span>
+                        <span style=${{ color:'#94a3b8', fontSize:11, fontWeight:600 }}>#${archives.length-idx}</span>
+                        <span style=${{ color:'#4b5563', fontSize:10 }}>${arch.timestamp.toLocaleDateString('ru-RU',{timeZone:'Europe/London'})} ${arch.timestamp.toLocaleTimeString('ru-RU',{timeZone:'Europe/London'})} LON</span>
+                        <span style=${{ color:'#3e4a5c', fontSize:9 }}>UKV + ICON-EU · ${arch.rows.length} ч</span>
+                      </div>
+                      <div style=${{ display:'flex', gap:6 }} onClick=${e=>e.stopPropagation()}>
+                        <button onClick=${()=>downloadCSV(arch)} style=${S.dlBtn}>↓ CSV</button>
+                        <button onClick=${()=>{ setArchives(prev=>prev.filter(a=>a.id!==arch.id)); if(expandedId===arch.id) setExpandedId(null); }} style=${S.delBtn}>✕</button>
+                      </div>
+                    </div>
+                    ${expandedId===arch.id&&html`
+                      <div style=${{ background:'#0c1017', border:'1px solid #1a2030', borderTop:'none', borderRadius:'0 0 5px 5px', padding:'0 8px 10px' }}>
+                        <${ArchiveTable} rows=${arch.rows} />
+                      </div>
+                    `}
+                  </div>
+                `)}
+              </div>
+            </div>
+          `}
 
           <div style=${{ textAlign:'center', fontSize:9, color:'#1e293b', marginTop:10 }}>
             ${lastFetch&&`Обновлено: ${lastFetch.toLocaleTimeString('ru-RU',{timeZone:'Europe/London'})}`} · ★ = прогнозируемый пик
@@ -310,6 +475,11 @@
       numInput:   { background:'#0c1017', border:'1px solid #1e293b', color:'#e2e8f0', padding:'8px 10px', borderRadius:5, fontSize:14, fontFamily:'inherit', outline:'none' },
       select:     { background:'#0c1017', border:'1px solid #1e293b', color:'#e2e8f0', padding:'8px 10px', borderRadius:5, fontSize:12, fontFamily:'inherit', outline:'none' },
       addBtn:     { background:'#1a2540', border:'1px solid #2563eb', color:'#93c5fd', padding:'8px 14px', borderRadius:5, cursor:'pointer', fontSize:11, fontFamily:'inherit' },
+      archiveBtn: { background:'#0f2b1a', border:'1px solid #16a34a', color:'#4ade80', padding:'5px 12px', borderRadius:5, cursor:'pointer', fontSize:10, fontFamily:'inherit', fontWeight:600 },
+      archiveRow: { display:'flex', alignItems:'center', gap:8, background:'#0c1017', border:'1px solid #1a2030', borderRadius:5, padding:'8px 10px' },
+      dlBtn:      { background:'#0c2233', border:'1px solid #0e7490', color:'#22d3ee', padding:'4px 10px', borderRadius:4, cursor:'pointer', fontSize:10, fontFamily:'inherit' },
+      delBtn:     { background:'#1a0a0a', border:'1px solid #3f1515', color:'#64748b', padding:'4px 8px', borderRadius:4, cursor:'pointer', fontSize:10, fontFamily:'inherit' },
+      th:         { padding:'6px 3px', textAlign:'right', color:'#3e4a5c', fontWeight:600, fontSize:8, letterSpacing:0.5, borderBottom:'1px solid #1a2030' },
       td2:        { padding:'5px 3px', textAlign:'right', color:'#64748b', fontSize:10 },
       loading:    { padding:40, textAlign:'center', color:'#4b5563', fontSize:13 },
       errBox:     { background:'#10141e', border:'1px solid #5c1a1a', borderRadius:7, padding:20, textAlign:'center', color:'#f87171', marginTop:40 },
