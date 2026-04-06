@@ -93,7 +93,11 @@
         } catch { setApiOk("error"); setMode("manual"); }
       }, [model]);
 
-      useEffect(() => { doFetch(); }, [doFetch]);
+      useEffect(() => {
+        doFetch();
+        const id = setInterval(doFetch, 10 * 60 * 1000);
+        return () => clearInterval(id);
+      }, [doFetch]);
 
       const b = calcBias(temp, wind, cloud, isDay, hour);
       const est = Math.round((temp + b.bias) * 10) / 10;

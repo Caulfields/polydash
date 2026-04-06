@@ -137,7 +137,11 @@
         setLoading(false);
       }, []);
 
-      useEffect(() => { doFetch(); }, [doFetch]);
+      useEffect(() => {
+        doFetch();
+        const id = setInterval(doFetch, 10 * 60 * 1000);
+        return () => clearInterval(id);
+      }, [doFetch]);
 
       const addMetarPoint = () => {
         if (metarInput==='') return;

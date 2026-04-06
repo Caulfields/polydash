@@ -91,7 +91,7 @@
         try { await window.storage.set(STORAGE_KEY, JSON.stringify(recs)); } catch {}
       }, []);
 
-      const fetchOpenMeteo = async () => {
+      const fetchOpenMeteo = useCallback(async () => {
         setFetching(true); setApiError(false);
         try {
           const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,is_day,relative_humidity_2m,surface_pressure&timezone=Europe%2FLondon`);
@@ -105,7 +105,13 @@
           }
         } catch { setApiError(true); setFetchResult(null); }
         setFetching(false);
-      };
+      }, []);
+
+      useEffect(() => {
+        fetchOpenMeteo();
+        const id = setInterval(fetchOpenMeteo, 10 * 60 * 1000);
+        return () => clearInterval(id);
+      }, [fetchOpenMeteo]);
 
       const saveRecord = () => {
         const t = nowLondon();
