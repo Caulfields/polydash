@@ -234,8 +234,17 @@
       const [metarHour, setMetarHour] = useState(
         parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false }))
       );
-      const [archives,   setArchives]   = useState([]);
+      const [archives,   setArchives]   = useState(() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem('eglc-forecast-archives') || '[]');
+          return saved.map(a => ({ ...a, timestamp: new Date(a.timestamp) }));
+        } catch { return []; }
+      });
       const [expandedId, setExpandedId] = useState(null);
+
+      useEffect(() => {
+        try { localStorage.setItem('eglc-forecast-archives', JSON.stringify(archives)); } catch {}
+      }, [archives]);
 
       const doFetch = useCallback(async () => {
         setLoading(true); setError(null);
