@@ -5,19 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EGLC Tracker — Polydash</title>
   <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico">
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="preload" href="https://unpkg.com/preact@10/dist/preact.umd.js" as="script" crossorigin>
+  <link rel="preload" href="https://unpkg.com/preact@10/hooks/dist/hooks.umd.js" as="script" crossorigin>
+  <link rel="preload" href="https://unpkg.com/htm/dist/htm.umd.js" as="script" crossorigin>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0c1017; }
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
     input[type=number]::-webkit-inner-spin-button { opacity: 1; }
-    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
   <script>
-    // localStorage shim matching window.storage API used in the component
     window.storage = {
       get: (key) => Promise.resolve({ value: localStorage.getItem(key) }),
       set: (key, value) => { localStorage.setItem(key, value); return Promise.resolve(); },
@@ -25,16 +26,17 @@
     };
   </script>
 
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/preact@10/dist/preact.umd.js"></script>
+  <script src="https://unpkg.com/preact@10/hooks/dist/hooks.umd.js"></script>
+  <script src="https://unpkg.com/htm/dist/htm.umd.js"></script>
 
-  <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
+  <script>
+    const { h, render, Fragment } = preact;
+    const { useState, useEffect, useCallback } = preactHooks;
+    const html = htm.bind(h);
 
     const LAT = 51.5053, LON = 0.0553;
     const STORAGE_KEY = "eglc-tracker-v2";
-
     const SCHEDULE = [
       { utc: 9,  label: "09 UTC", note: "утренний baseline" },
       { utc: 12, label: "12 UTC", note: "начало пикового окна" },
@@ -44,32 +46,26 @@
       { utc: 17, label: "17 UTC", note: "вечерний спад" },
     ];
 
-    function nowUTC() {
+    function nowLondon() {
       const d = new Date();
       return {
-        date: d.toLocaleDateString('en-CA', { timeZone: 'Europe/London' }),
-        hour: d.getUTCHours(),
-        min: d.getUTCMinutes(),
-        full: d.toISOString(),
+        date:     d.toLocaleDateString('en-CA', { timeZone: 'Europe/London' }),
+        hour:     d.getUTCHours(),
+        full:     d.toISOString(),
         localStr: d.toLocaleTimeString("ru-RU", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" }),
-        utcStr: `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} UTC`,
+        utcStr:   `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} UTC`,
       };
     }
 
     function calcBias(temp, wind, cloud, isDay, hour) {
       let bias = 0.6;
-      if (isDay) {
-        const sf = Math.max(0, (100 - cloud) / 100);
-        const wd = Math.max(0.2, 1 - wind / 25);
-        bias += sf * wd * 1.8;
-      } else {
-        bias += Math.max(0, (100 - cloud) / 100) * 0.8;
-      }
+      if (isDay) { const sf = Math.max(0,(100-cloud)/100); const wd = Math.max(0.2,1-wind/25); bias += sf*wd*1.8; }
+      else { bias += Math.max(0,(100-cloud)/100)*0.8; }
       if (wind > 15) bias -= 0.4;
       if (cloud > 80) bias -= 0.3;
       if (isDay && hour >= 12 && hour <= 16 && cloud < 50) bias += 0.4;
       bias += 0.3;
-      return Math.round(Math.max(0, Math.min(bias, 4)) * 10) / 10;
+      return Math.round(Math.max(0,Math.min(bias,4))*10)/10;
     }
 
     function App() {
@@ -86,10 +82,7 @@
 
       useEffect(() => {
         (async () => {
-          try {
-            const r = await window.storage.get(STORAGE_KEY);
-            if (r && r.value) setRecords(JSON.parse(r.value));
-          } catch {}
+          try { const r = await window.storage.get(STORAGE_KEY); if (r && r.value) setRecords(JSON.parse(r.value)); } catch {}
           setLoaded(true);
         })();
       }, []);
@@ -99,11 +92,9 @@
       }, []);
 
       const fetchOpenMeteo = async () => {
-        setFetching(true);
-        setApiError(false);
+        setFetching(true); setApiError(false);
         try {
-          const u = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,is_day,relative_humidity_2m,surface_pressure&timezone=Europe%2FLondon`;
-          const r = await fetch(u);
+          const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,is_day,relative_humidity_2m,surface_pressure&timezone=Europe%2FLondon`);
           const d = await r.json();
           if (d.current) {
             setFetchResult(d.current);
@@ -112,358 +103,230 @@
             setManualCloud(String(d.current.cloud_cover));
             setApiError(false);
           }
-        } catch {
-          setApiError(true);
-          setFetchResult(null);
-        }
+        } catch { setApiError(true); setFetchResult(null); }
         setFetching(false);
       };
 
       const saveRecord = () => {
-        const t = nowUTC();
-        const omTemp = parseFloat(manualTemp);
-        const omWind = parseFloat(manualWind);
-        const omCloud = parseFloat(manualCloud);
+        const t = nowLondon();
+        const omTemp = parseFloat(manualTemp), omWind = parseFloat(manualWind), omCloud = parseFloat(manualCloud);
         const metarT = metarInput !== "" ? parseInt(metarInput) : null;
         if (isNaN(omTemp)) return;
-
         const isDay = fetchResult ? fetchResult.is_day === 1 : (t.hour >= 6 && t.hour <= 19);
-        const bias = calcBias(omTemp, omWind || 0, omCloud || 0, isDay, t.hour);
-        const estimated = Math.round((omTemp + bias) * 10) / 10;
-
+        const bias = calcBias(omTemp, omWind||0, omCloud||0, isDay, t.hour);
+        const estimated = Math.round((omTemp+bias)*10)/10;
         const rec = {
-          id: Date.now(),
-          date: t.date,
-          utcHour: t.hour,
-          utcStr: t.utcStr,
-          localStr: t.localStr,
-          timestamp: t.full,
-          omTemp,
-          omWind: omWind || 0,
-          omWindDir: fetchResult?.wind_direction_10m ?? null,
-          omCloud: omCloud || 0,
-          omHumidity: fetchResult?.relative_humidity_2m ?? null,
-          omPressure: fetchResult?.surface_pressure ?? null,
-          isDay,
-          bias,
-          estimated,
-          estimatedRound: Math.round(estimated),
-          metar: metarT,
-          delta: metarT !== null ? Math.round((metarT - estimated) * 10) / 10 : null,
+          id: Date.now(), date: t.date, utcHour: t.hour, utcStr: t.utcStr, localStr: t.localStr,
+          timestamp: t.full, omTemp, omWind: omWind||0, omWindDir: fetchResult?.wind_direction_10m??null,
+          omCloud: omCloud||0, omHumidity: fetchResult?.relative_humidity_2m??null,
+          omPressure: fetchResult?.surface_pressure??null, isDay, bias, estimated,
+          estimatedRound: Math.round(estimated), metar: metarT,
+          delta: metarT !== null ? Math.round((metarT-estimated)*10)/10 : null,
         };
-
         const updated = [rec, ...records];
-        setRecords(updated);
-        save(updated);
-        setMetarInput("");
-        setFetchResult(null);
+        setRecords(updated); save(updated); setMetarInput(""); setFetchResult(null);
       };
 
       const withDelta = records.filter(r => r.delta !== null);
-      const avgDelta = withDelta.length > 0 ? (withDelta.reduce((s, r) => s + r.delta, 0) / withDelta.length) : null;
-      const absDelta = withDelta.length > 0 ? (withDelta.reduce((s, r) => s + Math.abs(r.delta), 0) / withDelta.length) : null;
-      const maxOvershoot = withDelta.length > 0 ? Math.max(...withDelta.map(r => r.delta)) : null;
-      const maxUndershoot = withDelta.length > 0 ? Math.min(...withDelta.map(r => r.delta)) : null;
+      const avgDelta = withDelta.length > 0 ? withDelta.reduce((s,r)=>s+r.delta,0)/withDelta.length : null;
+      const absDelta = withDelta.length > 0 ? withDelta.reduce((s,r)=>s+Math.abs(r.delta),0)/withDelta.length : null;
+      const maxOver  = withDelta.length > 0 ? Math.max(...withDelta.map(r=>r.delta)) : null;
+      const maxUnder = withDelta.length > 0 ? Math.min(...withDelta.map(r=>r.delta)) : null;
 
       const byDate = {};
-      records.forEach(r => {
-        if (!byDate[r.date]) byDate[r.date] = [];
-        byDate[r.date].push(r);
-      });
-      const dailyMaxes = Object.entries(byDate).map(([date, recs]) => {
-        const maxMetar = recs.filter(r => r.metar !== null).sort((a, b) => b.metar - a.metar)[0];
-        const maxOM = recs.sort((a, b) => b.omTemp - a.omTemp)[0];
-        return { date, maxMetar: maxMetar?.metar ?? null, maxOM: maxOM?.omTemp ?? null, maxEst: maxMetar?.estimated ?? maxOM?.estimated ?? null };
-      }).sort((a, b) => b.date.localeCompare(a.date));
+      records.forEach(r => { if (!byDate[r.date]) byDate[r.date]=[]; byDate[r.date].push(r); });
+      const dailyMaxes = Object.entries(byDate).map(([date,recs]) => {
+        const mM = recs.filter(r=>r.metar!==null).sort((a,b)=>b.metar-a.metar)[0];
+        const mO = recs.sort((a,b)=>b.omTemp-a.omTemp)[0];
+        return { date, maxMetar: mM?.metar??null, maxOM: mO?.omTemp??null };
+      }).sort((a,b)=>b.date.localeCompare(a.date));
 
-      const t = nowUTC();
-      const currentSlot = SCHEDULE.find(s => Math.abs(s.utc - t.hour) <= 0) || null;
-      const nextSlot = SCHEDULE.find(s => s.utc > t.hour) || SCHEDULE[0];
+      const t = nowLondon();
+      const currentSlot = SCHEDULE.find(s => s.utc === t.hour) || null;
+      const nextSlot    = SCHEDULE.find(s => s.utc > t.hour) || SCHEDULE[0];
 
-      const deleteRecord = (id) => {
-        const updated = records.filter(r => r.id !== id);
-        setRecords(updated);
-        save(updated);
-      };
-
+      const deleteRecord = (id) => { const u=records.filter(r=>r.id!==id); setRecords(u); save(u); };
       const clearAll = async () => {
-        if (confirm("Удалить все записи?")) {
-          setRecords([]);
-          try { await window.storage.delete(STORAGE_KEY); } catch {}
-        }
+        if (confirm("Удалить все записи?")) { setRecords([]); try { await window.storage.delete(STORAGE_KEY); } catch {} }
       };
 
-      if (!loaded) return <div style={S.wrap}><div style={{ padding: 40, textAlign: "center", color: "#4b5563" }}>Загрузка...</div></div>;
+      if (!loaded) return html`<div style=${{ ...S.wrap }}><div style=${{ padding:40,textAlign:"center",color:"#4b5563" }}>Загрузка...</div></div>`;
 
-      return (
-        <div style={S.wrap}>
-          <style>{`
-            @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            input[type=number]::-webkit-inner-spin-button { opacity: 1; }
-            @keyframes spin { to { transform: rotate(360deg); } }
-          `}</style>
+      const navLink = (href, label, active) => html`
+        <a href=${href} style=${{ color: active?"#93c5fd":"#4b5563", fontSize:10, textDecoration:"none", border:`1px solid ${active?"#2563eb":"#1a2030"}`, padding:"4px 10px", borderRadius:4, background:active?"#1a2540":"transparent" }}>${label}</a>
+      `;
 
-          {/* Nav */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16, paddingBottom: 10, borderBottom: "1px solid #1a2030" }}>
-            <a href="/" style={{ color: "#4b5563", fontSize: 10, textDecoration: "none", border: "1px solid #1a2030", padding: "4px 10px", borderRadius: 4 }}>← Polydash</a>
-            <a href="/weth/bias.html" style={{ color: "#4b5563", fontSize: 10, textDecoration: "none", border: "1px solid #1a2030", padding: "4px 10px", borderRadius: 4 }}>Bias</a>
-            <a href="/weth/tracker.html" style={{ color: "#93c5fd", fontSize: 10, textDecoration: "none", border: "1px solid #2563eb", padding: "4px 10px", borderRadius: 4, background: "#1a2540" }}>Tracker</a>
-            <a href="/weth/forecast.html" style={{ color: "#4b5563", fontSize: 10, textDecoration: "none", border: "1px solid #1a2030", padding: "4px 10px", borderRadius: 4 }}>Forecast</a>
+      return html`
+        <div style=${S.wrap}>
+          <div style=${{ display:"flex", gap:8, marginBottom:16, paddingBottom:10, borderBottom:"1px solid #1a2030" }}>
+            ${navLink("/","← Polydash",false)}
+            ${navLink("/weth/bias.html","Bias",false)}
+            ${navLink("/weth/tracker.html","Tracker",true)}
+            ${navLink("/weth/forecast.html","Forecast",false)}
           </div>
 
-          {/* Header */}
-          <div style={S.header}>
+          <div style=${S.header}>
             <div>
-              <div style={S.h1}>EGLC TRACKER</div>
-              <div style={S.sub}>Сбор данных METAR vs OpenMeteo</div>
+              <div style=${S.h1}>EGLC TRACKER</div>
+              <div style=${S.sub}>Сбор данных METAR vs OpenMeteo</div>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>{t.localStr} London</div>
+            <div style=${{ textAlign:"right" }}>
+              <div style=${{ fontSize:13, color:"#e2e8f0", fontWeight:600 }}>${t.localStr} London</div>
             </div>
           </div>
 
-          {/* Schedule bar */}
-          <div style={S.scheduleBar}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 8 }}>РАСПИСАНИЕ ЗАПИСЕЙ</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {SCHEDULE.map(s => {
-                const isNow = s.utc === t.hour;
-                const isPast = s.utc < t.hour;
-                const todayDone = records.some(r => r.date === t.date && r.utcHour === s.utc);
-                return (
-                  <div key={s.utc} style={{
-                    padding: "6px 10px", borderRadius: 5, fontSize: 10,
-                    background: isNow ? "#1a2540" : "#10141e",
-                    border: `1px solid ${isNow ? "#2563eb" : todayDone ? "#166534" : "#1a2030"}`,
-                    color: todayDone ? "#22c55e" : isNow ? "#93c5fd" : isPast ? "#334155" : "#64748b",
-                  }}>
-                    <div style={{ fontWeight: 600 }}>{s.label} {todayDone && "✓"}</div>
-                    <div style={{ opacity: 0.6 }}>{s.note}</div>
-                  </div>
-                );
+          <div style=${S.scheduleBar}>
+            <div style=${{ fontSize:9, fontWeight:700, color:"#3e4a5c", letterSpacing:1.5, marginBottom:8 }}>РАСПИСАНИЕ ЗАПИСЕЙ</div>
+            <div style=${{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              ${SCHEDULE.map(s => {
+                const isNow = s.utc === t.hour, isPast = s.utc < t.hour;
+                const todayDone = records.some(r => r.date===t.date && r.utcHour===s.utc);
+                return html`
+                  <div key=${s.utc} style=${{ padding:"6px 10px", borderRadius:5, fontSize:10,
+                    background: isNow?"#1a2540":"#10141e",
+                    border:`1px solid ${isNow?"#2563eb":todayDone?"#166534":"#1a2030"}`,
+                    color: todayDone?"#22c55e":isNow?"#93c5fd":isPast?"#334155":"#64748b" }}>
+                    <div style=${{ fontWeight:600 }}>${s.label} ${todayDone?"✓":""}</div>
+                    <div style=${{ opacity:0.6 }}>${s.note}</div>
+                  </div>`;
               })}
             </div>
-            {currentSlot && <div style={{ fontSize: 11, color: "#eab308", marginTop: 8 }}>
-              → Сейчас слот: <strong>{currentSlot.label}</strong> ({currentSlot.note})
-            </div>}
-            {!currentSlot && nextSlot && <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
-              Следующий слот: {nextSlot.label} ({nextSlot.note})
-            </div>}
+            ${currentSlot && html`<div style=${{ fontSize:11, color:"#eab308", marginTop:8 }}>→ Сейчас слот: <strong>${currentSlot.label}</strong> (${currentSlot.note})</div>`}
+            ${!currentSlot && html`<div style=${{ fontSize:11, color:"#64748b", marginTop:8 }}>Следующий слот: ${nextSlot.label} (${nextSlot.note})</div>`}
           </div>
 
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-            {[["record", "Запись"], ["history", `История (${records.length})`], ["stats", "Статистика"]].map(([k, l]) => (
-              <button key={k} onClick={() => setTab(k)} style={{
-                background: tab === k ? "#1a2540" : "transparent",
-                border: `1px solid ${tab === k ? "#2563eb" : "#1a2030"}`,
-                color: tab === k ? "#93c5fd" : "#4b5563",
-                padding: "6px 14px", borderRadius: 5, cursor: "pointer", fontSize: 11, fontFamily: "inherit",
-              }}>{l}</button>
-            ))}
+          <div style=${{ display:"flex", gap:4, marginBottom:14 }}>
+            ${[["record","Запись"],["history",`История (${records.length})`],["stats","Статистика"]].map(([k,l]) => html`
+              <button key=${k} onClick=${()=>setTab(k)} style=${{ background:tab===k?"#1a2540":"transparent", border:`1px solid ${tab===k?"#2563eb":"#1a2030"}`, color:tab===k?"#93c5fd":"#4b5563", padding:"6px 14px", borderRadius:5, cursor:"pointer", fontSize:11, fontFamily:"inherit" }}>${l}</button>
+            `)}
           </div>
 
-          {/* TAB: RECORD */}
-          {tab === "record" && (
-            <div>
-              <button onClick={fetchOpenMeteo} disabled={fetching} style={{
-                width: "100%", padding: "14px", borderRadius: 7, border: "1px solid #2563eb",
-                background: "linear-gradient(135deg, #1e3a5f, #1a2540)", color: "#93c5fd",
-                fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-                marginBottom: 12, opacity: fetching ? 0.6 : 1,
-              }}>
-                {fetching ? "⏳ Загрузка..." : "📡 Загрузить данные OpenMeteo"}
-              </button>
-
-              {apiError && <div style={{ background: "#1a0a0a", border: "1px solid #5c1a1a", color: "#f87171", padding: "8px 12px", borderRadius: 5, fontSize: 11, marginBottom: 12 }}>
-                API недоступен — введи данные вручную
-              </div>}
-
-              <div style={S.card}>
-                <div style={S.cardTitle}>ДАННЫЕ OPENMETEO</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                  <div>
-                    <label style={S.fieldLabel}>Темп. °C</label>
-                    <input type="number" step="0.1" value={manualTemp} onChange={e => setManualTemp(e.target.value)} placeholder="12.5" style={S.numInput} />
-                  </div>
-                  <div>
-                    <label style={S.fieldLabel}>Ветер км/ч</label>
-                    <input type="number" step="1" value={manualWind} onChange={e => setManualWind(e.target.value)} placeholder="5" style={S.numInput} />
-                  </div>
-                  <div>
-                    <label style={S.fieldLabel}>Облачн. %</label>
-                    <input type="number" step="5" value={manualCloud} onChange={e => setManualCloud(e.target.value)} placeholder="30" style={S.numInput} />
-                  </div>
-                </div>
-                {fetchResult && <div style={{ marginTop: 10, fontSize: 10, color: "#4b5563" }}>
-                  Доп: влажность {fetchResult.relative_humidity_2m}% · давление {fetchResult.surface_pressure} hPa · ветер {fetchResult.wind_direction_10m}°
-                </div>}
+          ${tab === "record" && html`<div>
+            <button onClick=${fetchOpenMeteo} disabled=${fetching} style=${{ width:"100%", padding:"14px", borderRadius:7, border:"1px solid #2563eb", background:"linear-gradient(135deg,#1e3a5f,#1a2540)", color:"#93c5fd", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit", marginBottom:12, opacity:fetching?0.6:1 }}>
+              ${fetching ? "⏳ Загрузка..." : "📡 Загрузить данные OpenMeteo"}
+            </button>
+            ${apiError && html`<div style=${{ background:"#1a0a0a", border:"1px solid #5c1a1a", color:"#f87171", padding:"8px 12px", borderRadius:5, fontSize:11, marginBottom:12 }}>API недоступен — введи данные вручную</div>`}
+            <div style=${S.card}>
+              <div style=${S.cardTitle}>ДАННЫЕ OPENMETEO</div>
+              <div style=${{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+                <div><label style=${S.fieldLabel}>Темп. °C</label><input type="number" step="0.1" value=${manualTemp} onInput=${e=>setManualTemp(e.target.value)} placeholder="12.5" style=${S.numInput} /></div>
+                <div><label style=${S.fieldLabel}>Ветер км/ч</label><input type="number" step="1" value=${manualWind} onInput=${e=>setManualWind(e.target.value)} placeholder="5" style=${S.numInput} /></div>
+                <div><label style=${S.fieldLabel}>Облачн. %</label><input type="number" step="5" value=${manualCloud} onInput=${e=>setManualCloud(e.target.value)} placeholder="30" style=${S.numInput} /></div>
               </div>
-
-              <div style={S.card}>
-                <div style={S.cardTitle}>METAR EGLC (необязательно)</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input type="number" value={metarInput} onChange={e => setMetarInput(e.target.value)} placeholder="14" style={{ ...S.numInput, width: 80, fontSize: 22, textAlign: "center" }} />
-                  <span style={{ color: "#4b5563" }}>°C</span>
-                  <span style={{ fontSize: 10, color: "#334155", marginLeft: 8 }}>Можно добавить позже через историю</span>
-                </div>
-              </div>
-
-              {manualTemp && <div style={{ ...S.card, borderColor: "#1d4ed8" }}>
-                <div style={S.cardTitle}>ПРЕДПРОСМОТР</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: "#4b5563" }}>OpenMeteo</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#e2e8f0" }}>{manualTemp}°C</div>
-                  </div>
-                  <div style={{ color: "#f59e0b", fontWeight: 700 }}>+{calcBias(parseFloat(manualTemp) || 0, parseFloat(manualWind) || 0, parseFloat(manualCloud) || 0, t.hour >= 6 && t.hour <= 19, t.hour)}°C</div>
-                  <div>
-                    <div style={{ fontSize: 10, color: "#4b5563" }}>Оценка METAR</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#60a5fa" }}>
-                      {(parseFloat(manualTemp) + calcBias(parseFloat(manualTemp) || 0, parseFloat(manualWind) || 0, parseFloat(manualCloud) || 0, t.hour >= 6 && t.hour <= 19, t.hour)).toFixed(1)}°C
-                    </div>
-                  </div>
-                  {metarInput && <div>
-                    <div style={{ fontSize: 10, color: "#4b5563" }}>METAR факт</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#fbbf24" }}>{metarInput}°C</div>
-                  </div>}
-                </div>
-              </div>}
-
-              <button onClick={saveRecord} disabled={!manualTemp} style={{
-                width: "100%", padding: "14px", borderRadius: 7,
-                border: "1px solid #166534", background: "#0a2010", color: "#22c55e",
-                fontSize: 14, fontWeight: 700, cursor: manualTemp ? "pointer" : "not-allowed",
-                fontFamily: "inherit", marginTop: 4, opacity: manualTemp ? 1 : 0.4,
-              }}>
-                💾 Сохранить запись ({t.utcStr})
-              </button>
+              ${fetchResult && html`<div style=${{ marginTop:10, fontSize:10, color:"#4b5563" }}>Доп: влажность ${fetchResult.relative_humidity_2m}% · давление ${fetchResult.surface_pressure} hPa · ветер ${fetchResult.wind_direction_10m}°</div>`}
             </div>
-          )}
+            <div style=${S.card}>
+              <div style=${S.cardTitle}>METAR EGLC (необязательно)</div>
+              <div style=${{ display:"flex", alignItems:"center", gap:8 }}>
+                <input type="number" value=${metarInput} onInput=${e=>setMetarInput(e.target.value)} placeholder="14" style=${{ ...S.numInput, width:80, fontSize:22, textAlign:"center" }} />
+                <span style=${{ color:"#4b5563" }}>°C</span>
+              </div>
+            </div>
+            ${manualTemp && html`<div style=${{ ...S.card, borderColor:"#1d4ed8" }}>
+              <div style=${S.cardTitle}>ПРЕДПРОСМОТР</div>
+              <div style=${{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+                <div><div style=${{ fontSize:10, color:"#4b5563" }}>OpenMeteo</div><div style=${{ fontSize:22, fontWeight:700, color:"#e2e8f0" }}>${manualTemp}°C</div></div>
+                <div style=${{ color:"#f59e0b", fontWeight:700 }}>+${calcBias(parseFloat(manualTemp)||0, parseFloat(manualWind)||0, parseFloat(manualCloud)||0, t.hour>=6&&t.hour<=19, t.hour)}°C</div>
+                <div><div style=${{ fontSize:10, color:"#4b5563" }}>Оценка METAR</div><div style=${{ fontSize:22, fontWeight:700, color:"#60a5fa" }}>${(parseFloat(manualTemp)+calcBias(parseFloat(manualTemp)||0,parseFloat(manualWind)||0,parseFloat(manualCloud)||0,t.hour>=6&&t.hour<=19,t.hour)).toFixed(1)}°C</div></div>
+                ${metarInput && html`<div><div style=${{ fontSize:10, color:"#4b5563" }}>METAR факт</div><div style=${{ fontSize:22, fontWeight:700, color:"#fbbf24" }}>${metarInput}°C</div></div>`}
+              </div>
+            </div>`}
+            <button onClick=${saveRecord} disabled=${!manualTemp} style=${{ width:"100%", padding:"14px", borderRadius:7, border:"1px solid #166534", background:"#0a2010", color:"#22c55e", fontSize:14, fontWeight:700, cursor:manualTemp?"pointer":"not-allowed", fontFamily:"inherit", marginTop:4, opacity:manualTemp?1:0.4 }}>
+              💾 Сохранить запись (${t.utcStr})
+            </button>
+          </div>`}
 
-          {/* TAB: HISTORY */}
-          {tab === "history" && (
-            <div>
-              {records.length === 0 && <div style={{ padding: 30, textAlign: "center", color: "#334155" }}>Пока нет записей</div>}
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid #1e293b" }}>
-                      {["Дата", "UTC", "OM°C", "Ветер", "Обл%", "Bias", "Оценка", "METAR", "Δ", ""].map((h, i) => (
-                        <th key={i} style={{ padding: "8px 4px", textAlign: "left", color: "#4b5563", fontWeight: 600, fontSize: 9, letterSpacing: 1 }}>{h}</th>
-                      ))}
+          ${tab === "history" && html`<div>
+            ${records.length === 0 && html`<div style=${{ padding:30, textAlign:"center", color:"#334155" }}>Пока нет записей</div>`}
+            <div style=${{ overflowX:"auto" }}>
+              <table style=${{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                <thead><tr style=${{ borderBottom:"1px solid #1e293b" }}>
+                  ${["Дата","UTC","OM°C","Ветер","Обл%","Bias","Оценка","METAR","Δ",""].map((h,i)=>html`<th key=${i} style=${{ padding:"8px 4px", textAlign:"left", color:"#4b5563", fontWeight:600, fontSize:9, letterSpacing:1 }}>${h}</th>`)}
+                </tr></thead>
+                <tbody>
+                  ${records.map(r => html`
+                    <tr key=${r.id} style=${{ borderBottom:"1px solid #131820" }}>
+                      <td style=${S.td}>${r.date.slice(5)}</td>
+                      <td style=${S.td}>${r.utcStr}</td>
+                      <td style=${{ ...S.td, color:"#e2e8f0" }}>${r.omTemp}</td>
+                      <td style=${S.td}>${r.omWind}</td>
+                      <td style=${S.td}>${r.omCloud}</td>
+                      <td style=${{ ...S.td, color:"#f59e0b" }}>+${r.bias}</td>
+                      <td style=${{ ...S.td, color:"#60a5fa" }}>${r.estimated}</td>
+                      <td style=${{ ...S.td, color:"#fbbf24", fontWeight:600 }}>${r.metar??"—"}</td>
+                      <td style=${{ ...S.td, fontWeight:700, color:r.delta===null?"#334155":Math.abs(r.delta)<=1?"#22c55e":Math.abs(r.delta)<=2?"#eab308":"#ef4444" }}>${r.delta!==null?(r.delta>0?"+":"")+r.delta:"—"}</td>
+                      <td style=${S.td}><button onClick=${()=>deleteRecord(r.id)} style=${{ background:"none", border:"none", color:"#334155", cursor:"pointer", fontSize:12 }}>✕</button></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {records.map(r => (
-                      <tr key={r.id} style={{ borderBottom: "1px solid #131820" }}>
-                        <td style={S.td}>{r.date.slice(5)}</td>
-                        <td style={S.td}>{r.utcStr}</td>
-                        <td style={{ ...S.td, color: "#e2e8f0" }}>{r.omTemp}</td>
-                        <td style={S.td}>{r.omWind}</td>
-                        <td style={S.td}>{r.omCloud}</td>
-                        <td style={{ ...S.td, color: "#f59e0b" }}>+{r.bias}</td>
-                        <td style={{ ...S.td, color: "#60a5fa" }}>{r.estimated}</td>
-                        <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{r.metar ?? "—"}</td>
-                        <td style={{
-                          ...S.td, fontWeight: 700,
-                          color: r.delta === null ? "#334155" : Math.abs(r.delta) <= 1 ? "#22c55e" : Math.abs(r.delta) <= 2 ? "#eab308" : "#ef4444"
-                        }}>{r.delta !== null ? (r.delta > 0 ? "+" : "") + r.delta : "—"}</td>
-                        <td style={S.td}>
-                          <button onClick={() => deleteRecord(r.id)} style={{ background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: 12 }}>✕</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {records.length > 0 && (
-                <button onClick={clearAll} style={{ marginTop: 12, background: "none", border: "1px solid #5c1a1a", color: "#f87171", padding: "6px 12px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "inherit" }}>
-                  🗑 Очистить всё
-                </button>
-              )}
+                  `)}
+                </tbody>
+              </table>
             </div>
-          )}
+            ${records.length > 0 && html`<button onClick=${clearAll} style=${{ marginTop:12, background:"none", border:"1px solid #5c1a1a", color:"#f87171", padding:"6px 12px", borderRadius:5, cursor:"pointer", fontSize:10, fontFamily:"inherit" }}>🗑 Очистить всё</button>`}
+          </div>`}
 
-          {/* TAB: STATS */}
-          {tab === "stats" && (
-            <div>
-              <div style={S.card}>
-                <div style={S.cardTitle}>ОБЩАЯ СТАТИСТИКА</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div style={S.statBox}><div style={S.statLabel}>Всего записей</div><div style={S.statVal}>{records.length}</div></div>
-                  <div style={S.statBox}><div style={S.statLabel}>С METAR</div><div style={S.statVal}>{withDelta.length}</div></div>
-                  <div style={S.statBox}>
-                    <div style={S.statLabel}>Средняя Δ</div>
-                    <div style={{ ...S.statVal, color: avgDelta !== null ? (avgDelta > 0 ? "#ef4444" : "#22c55e") : "#334155" }}>
-                      {avgDelta !== null ? (avgDelta > 0 ? "+" : "") + avgDelta.toFixed(1) + "°C" : "—"}
-                    </div>
-                    <div style={S.statHint}>{avgDelta !== null ? (avgDelta > 0.3 ? "Модель недооценивает — нужно увеличить поправку" : avgDelta < -0.3 ? "Модель переоценивает — нужно уменьшить поправку" : "Модель калибрована хорошо") : ""}</div>
-                  </div>
-                  <div style={S.statBox}>
-                    <div style={S.statLabel}>Средняя |Δ| (точность)</div>
-                    <div style={{ ...S.statVal, color: absDelta !== null ? (absDelta <= 1 ? "#22c55e" : "#eab308") : "#334155" }}>
-                      {absDelta !== null ? absDelta.toFixed(1) + "°C" : "—"}
-                    </div>
-                  </div>
-                  <div style={S.statBox}><div style={S.statLabel}>Макс перелёт</div><div style={{ ...S.statVal, color: "#ef4444" }}>{maxOvershoot !== null ? "+" + maxOvershoot + "°C" : "—"}</div></div>
-                  <div style={S.statBox}><div style={S.statLabel}>Макс недолёт</div><div style={{ ...S.statVal, color: "#3b82f6" }}>{maxUndershoot !== null ? maxUndershoot + "°C" : "—"}</div></div>
+          ${tab === "stats" && html`<div>
+            <div style=${S.card}>
+              <div style=${S.cardTitle}>ОБЩАЯ СТАТИСТИКА</div>
+              <div style=${{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div style=${S.statBox}><div style=${S.statLabel}>Всего записей</div><div style=${S.statVal}>${records.length}</div></div>
+                <div style=${S.statBox}><div style=${S.statLabel}>С METAR</div><div style=${S.statVal}>${withDelta.length}</div></div>
+                <div style=${S.statBox}>
+                  <div style=${S.statLabel}>Средняя Δ</div>
+                  <div style=${{ ...S.statVal, color:avgDelta!==null?(avgDelta>0?"#ef4444":"#22c55e"):"#334155" }}>${avgDelta!==null?(avgDelta>0?"+":"")+avgDelta.toFixed(1)+"°C":"—"}</div>
+                  <div style=${S.statHint}>${avgDelta!==null?(avgDelta>0.3?"Модель недооценивает":avgDelta<-0.3?"Модель переоценивает":"Модель калибрована хорошо"):""}</div>
                 </div>
-              </div>
-
-              <div style={S.card}>
-                <div style={S.cardTitle}>ДНЕВНЫЕ МАКСИМУМЫ</div>
-                {dailyMaxes.length === 0 && <div style={{ color: "#334155", fontSize: 11 }}>Пока нет данных</div>}
-                {dailyMaxes.map(d => (
-                  <div key={d.date} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #131820", fontSize: 12 }}>
-                    <span style={{ color: "#94a3b8" }}>{d.date}</span>
-                    <span>OM: <strong style={{ color: "#e2e8f0" }}>{d.maxOM ?? "—"}°C</strong></span>
-                    <span>METAR: <strong style={{ color: "#fbbf24" }}>{d.maxMetar ?? "—"}°C</strong></span>
-                  </div>
-                ))}
-              </div>
-
-              {avgDelta !== null && (
-                <div style={{ ...S.card, borderColor: "#1d4ed8" }}>
-                  <div style={S.cardTitle}>РЕКОМЕНДАЦИЯ</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
-                    {Math.abs(avgDelta) <= 0.5
-                      ? "Модель поправки работает хорошо. Средняя ошибка в пределах ±0.5°C — это уровень шума от округления METAR."
-                      : avgDelta > 0.5
-                      ? `Модель систематически недооценивает на ${avgDelta.toFixed(1)}°C. Нужно увеличить базовый UHI-коэффициент.`
-                      : `Модель систематически переоценивает на ${Math.abs(avgDelta).toFixed(1)}°C. Нужно уменьшить поправку.`}
-                  </div>
+                <div style=${S.statBox}>
+                  <div style=${S.statLabel}>Средняя |Δ|</div>
+                  <div style=${{ ...S.statVal, color:absDelta!==null?(absDelta<=1?"#22c55e":"#eab308"):"#334155" }}>${absDelta!==null?absDelta.toFixed(1)+"°C":"—"}</div>
                 </div>
-              )}
+                <div style=${S.statBox}><div style=${S.statLabel}>Макс перелёт</div><div style=${{ ...S.statVal, color:"#ef4444" }}>${maxOver!==null?"+"+maxOver+"°C":"—"}</div></div>
+                <div style=${S.statBox}><div style=${S.statLabel}>Макс недолёт</div><div style=${{ ...S.statVal, color:"#3b82f6" }}>${maxUnder!==null?maxUnder+"°C":"—"}</div></div>
+              </div>
             </div>
-          )}
+            <div style=${S.card}>
+              <div style=${S.cardTitle}>ДНЕВНЫЕ МАКСИМУМЫ</div>
+              ${dailyMaxes.length===0&&html`<div style=${{ color:"#334155", fontSize:11 }}>Пока нет данных</div>`}
+              ${dailyMaxes.map(d=>html`
+                <div key=${d.date} style=${{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #131820", fontSize:12 }}>
+                  <span style=${{ color:"#94a3b8" }}>${d.date}</span>
+                  <span>OM: <strong style=${{ color:"#e2e8f0" }}>${d.maxOM??"—"}°C</strong></span>
+                  <span>METAR: <strong style=${{ color:"#fbbf24" }}>${d.maxMetar??"—"}°C</strong></span>
+                </div>
+              `)}
+            </div>
+            ${avgDelta!==null&&html`<div style=${{ ...S.card, borderColor:"#1d4ed8" }}>
+              <div style=${S.cardTitle}>РЕКОМЕНДАЦИЯ</div>
+              <div style=${{ fontSize:12, color:"#94a3b8", lineHeight:1.6 }}>
+                ${Math.abs(avgDelta)<=0.5?"Модель поправки работает хорошо. Средняя ошибка ±0.5°C.":avgDelta>0.5?`Модель недооценивает на ${avgDelta.toFixed(1)}°C.`:`Модель переоценивает на ${Math.abs(avgDelta).toFixed(1)}°C.`}
+              </div>
+            </div>`}
+          </div>`}
 
-          <div style={{ textAlign: "center", fontSize: 9, color: "#1e293b", marginTop: 16, paddingTop: 8, borderTop: "1px solid #131820" }}>
-            Данные сохраняются между сессиями · Рекомендация: 4–6 записей в день · Через неделю — анализ
+          <div style=${{ textAlign:"center", fontSize:9, color:"#1e293b", marginTop:16, paddingTop:8, borderTop:"1px solid #131820" }}>
+            Данные сохраняются между сессиями · Рекомендация: 4–6 записей в день
           </div>
         </div>
-      );
+      `;
     }
 
     const S = {
-      wrap: { fontFamily: "'IBM Plex Mono', 'Courier New', monospace", background: "#0c1017", color: "#8b95a5", minHeight: "100vh", padding: 16, boxSizing: "border-box", maxWidth: 600, margin: "0 auto" },
-      header: { display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1a2030", paddingBottom: 12, marginBottom: 14 },
-      h1: { fontSize: 18, fontWeight: 700, color: "#e8ecf1", letterSpacing: 2 },
-      sub: { fontSize: 10, color: "#3e4a5c", marginTop: 2 },
-      scheduleBar: { background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 12, marginBottom: 14 },
-      card: { background: "#10141e", border: "1px solid #1a2030", borderRadius: 7, padding: 14, marginBottom: 12 },
-      cardTitle: { fontSize: 9, fontWeight: 700, color: "#3e4a5c", letterSpacing: 1.5, marginBottom: 10 },
-      fieldLabel: { fontSize: 10, color: "#4b5563", display: "block", marginBottom: 4 },
-      numInput: { width: "100%", background: "#0c1017", border: "1px solid #1e293b", color: "#e2e8f0", padding: "8px 10px", borderRadius: 5, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" },
-      td: { padding: "6px 4px", color: "#8b95a5" },
-      statBox: { background: "#0c1017", borderRadius: 5, padding: 10 },
-      statLabel: { fontSize: 9, color: "#4b5563", letterSpacing: 1, marginBottom: 4 },
-      statVal: { fontSize: 20, fontWeight: 700, color: "#e2e8f0" },
-      statHint: { fontSize: 9, color: "#4b5563", marginTop: 4 },
+      wrap:        { fontFamily:"'IBM Plex Mono','Courier New',monospace", background:"#0c1017", color:"#8b95a5", minHeight:"100vh", padding:16, boxSizing:"border-box", maxWidth:600, margin:"0 auto" },
+      header:      { display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid #1a2030", paddingBottom:12, marginBottom:14 },
+      h1:          { fontSize:18, fontWeight:700, color:"#e8ecf1", letterSpacing:2 },
+      sub:         { fontSize:10, color:"#3e4a5c", marginTop:2 },
+      scheduleBar: { background:"#10141e", border:"1px solid #1a2030", borderRadius:7, padding:12, marginBottom:14 },
+      card:        { background:"#10141e", border:"1px solid #1a2030", borderRadius:7, padding:14, marginBottom:12 },
+      cardTitle:   { fontSize:9, fontWeight:700, color:"#3e4a5c", letterSpacing:1.5, marginBottom:10 },
+      fieldLabel:  { fontSize:10, color:"#4b5563", display:"block", marginBottom:4 },
+      numInput:    { width:"100%", background:"#0c1017", border:"1px solid #1e293b", color:"#e2e8f0", padding:"8px 10px", borderRadius:5, fontSize:14, fontFamily:"inherit", outline:"none", boxSizing:"border-box" },
+      td:          { padding:"6px 4px", color:"#8b95a5" },
+      statBox:     { background:"#0c1017", borderRadius:5, padding:10 },
+      statLabel:   { fontSize:9, color:"#4b5563", letterSpacing:1, marginBottom:4 },
+      statVal:     { fontSize:20, fontWeight:700, color:"#e2e8f0" },
+      statHint:    { fontSize:9, color:"#4b5563", marginTop:4 },
     };
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    render(html`<${App} />`, document.getElementById("root"));
   </script>
 </body>
 </html>
