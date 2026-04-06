@@ -127,12 +127,17 @@
       `;
     }
 
+    const todayLondon = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+    const METAR_KEY = () => `eglc-forecast-metar-${todayLondon()}`;
+
     function App() {
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [lastFetch, setLastFetch] = useState(null);
-      const [metarPoints, setMetarPoints] = useState({});
+      const [metarPoints, setMetarPoints] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(METAR_KEY()) || '{}'); } catch { return {}; }
+      });
       const [metarInput, setMetarInput] = useState('');
       const [metarHour, setMetarHour] = useState(
         parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false }))
@@ -156,7 +161,9 @@
 
       const addMetarPoint = () => {
         if (metarInput==='') return;
-        setMetarPoints({ ...metarPoints, [metarHour]: parseInt(metarInput) });
+        const updated = { ...metarPoints, [metarHour]: parseInt(metarInput) };
+        setMetarPoints(updated);
+        try { localStorage.setItem(METAR_KEY(), JSON.stringify(updated)); } catch {}
         setMetarInput('');
       };
 
