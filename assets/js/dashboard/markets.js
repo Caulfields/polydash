@@ -200,6 +200,12 @@ function getMid(market) {
   return prices.mid ?? prices.lastTrade ?? market.lastTradePrice ?? market.outcomePriceYes ?? 0;
 }
 
+function marketTempFromMetar(tempC) {
+  if (!Number.isFinite(tempC)) return null;
+  if (activeCity.marketUnit === 'F') return Math.round((tempC * 9) / 5 + 32);
+  return tempC;
+}
+
 function renderTable(changedIds) {
   const sort = document.getElementById('sortSel').value;
   const sorted = [...getMarkets()].sort((a, b) => {
@@ -221,7 +227,9 @@ function renderTable(changedIds) {
     const up = moved && mid > prevMid;
     prevPrices[market.yesTokenId] = mid;
 
-    const todayMax = viewDay === 0 && metarToday.length ? Math.max(...metarToday.map((item) => item.temp)) : -Infinity;
+    const todayMax = viewDay === 0 && metarToday.length
+      ? Math.max(...metarToday.map((item) => marketTempFromMetar(item.temp)).filter((value) => value != null))
+      : -Infinity;
     const threshTemp = parseInt(market.label, 10) || 99;
     const isLastMarket = market.label.includes('or above');
     const eliminated = viewDay === 0 && !isLastMarket && todayMax > threshTemp;

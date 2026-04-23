@@ -2,9 +2,10 @@
     const { useState, useEffect, useCallback, useRef } = preactHooks;
     const html = htm.bind(h);
 
-    const LAT = 37.469101;
-    const LON = 126.450996;
-    const TZ = 'Asia/Seoul';
+    const LAT = 40.0799;
+    const LON = 116.6031;
+    const TZ = 'Asia/Shanghai';
+    const STATION = 'ZBAA';
     const HOURLY_VARS = 'temperature_2m,wind_speed_10m,cloud_cover,precipitation_probability';
 
     const MODELS = [
@@ -14,7 +15,7 @@
       { id: 'icon_seamless', label: 'ICON', color: '#f472b6', note: 'DWD ICON' },
     ];
 
-    function parisNowParts(date = new Date()) {
+    function beijingNowParts(date = new Date()) {
       return {
         dateKey: date.toLocaleDateString('en-CA', { timeZone: TZ }),
         timeLabel: date.toLocaleTimeString('ru-RU', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }),
@@ -90,10 +91,10 @@
           temp: r.temp,
         }))
         .sort((a, b) => a.time - b.time);
-      const todayKey = parisNowParts().dateKey;
+      const todayKey = beijingNowParts().dateKey;
       return obs
         .map(row => {
-          const parts = parisNowParts(row.time);
+          const parts = beijingNowParts(row.time);
           return {
             ...row,
             dateKey: parts.dateKey,
@@ -343,7 +344,6 @@
       return html`
         <div>
           <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 10, color: '#64748b', flexWrap: 'wrap' }}>
-            <div>Drag to pan · wheel to zoom · double click to reset</div>
             <button
               type="button"
               onClick=${resetZoom}
@@ -504,7 +504,7 @@
       const [showRealMetar, setShowRealMetar] = useState(true);
       const [todayMode, setTodayMode] = useState('best');
       const [nowTick, setNowTick] = useState(() => new Date());
-      const [activeDateKey, setActiveDateKey] = useState(() => parisNowParts().dateKey);
+      const [activeDateKey, setActiveDateKey] = useState(() => beijingNowParts().dateKey);
 
       const doFetch = useCallback(async () => {
         setLoading(true);
@@ -515,7 +515,7 @@
           const [modelsResponse, bestMatchResponse, metarResponse] = await Promise.all([
             fetch(modelsUrl),
             fetch(bestMatchUrl),
-            fetch('/api/metar?station=RKSI').catch(() => null),
+            fetch(`/api/metar?station=${STATION}`).catch(() => null),
           ]);
           if (!modelsResponse.ok) throw new Error(`HTTP ${modelsResponse.status}`);
           if (!bestMatchResponse.ok) throw new Error(`HTTP ${bestMatchResponse.status}`);
@@ -554,7 +554,7 @@
       }, []);
 
       useEffect(() => {
-        const nextDateKey = parisNowParts(nowTick).dateKey;
+        const nextDateKey = beijingNowParts(nowTick).dateKey;
         if (nextDateKey !== activeDateKey) {
           setActiveDateKey(nextDateKey);
           doFetch();
@@ -562,7 +562,7 @@
       }, [nowTick, activeDateKey, doFetch]);
 
       if (loading && !Object.keys(rowsByModel).length) {
-        return html`<div style=${S.wrap}><div style=${S.loading}>Loading Seoul forecast...</div></div>`;
+        return html`<div style=${S.wrap}><div style=${S.loading}>Loading Beijing forecast...</div></div>`;
       }
 
       if (error && !Object.keys(rowsByModel).length) {
@@ -577,7 +577,7 @@
         `;
       }
 
-      const nowParts = parisNowParts(nowTick);
+      const nowParts = beijingNowParts(nowTick);
       const referenceRows = MODELS.map(model => rowsByModel[model.id] || []).find(rows => rows.length) || [];
       const dayKeys = Array.from(new Set(referenceRows.map(row => row.dateKey))).slice(0, 3);
       const datedRows = referenceRows.map(row => ({ ...row, dayTitle: dayTitle(row.dateKey) }));
@@ -626,7 +626,7 @@
           <div style=${S.wrap}>
           <div style=${{ display: 'flex', gap: 8, marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid #1a2030', flexWrap: 'wrap' }}>
               ${navLink('/', 'Polydash', false)}
-            ${navLink('/weth/seoul-forecast.html', 'Seoul Forecast', true)}
+            ${navLink('/weth/beijing-forecast.html', 'Beijing Forecast', true)}
             ${navLink('/weth/forecast.html', 'London Forecast', false)}
             ${navLink('/weth/paris-forecast.html', 'Paris Forecast', false)}
             ${navLink('/weth/usa-forecast.html', 'USA Forecast', false)}
@@ -634,11 +634,7 @@
 
           <div style=${S.header}>
             <div>
-              <div style=${S.h1}>SEOUL FORECAST</div>
-              <div style=${S.sub}>RKSI / Incheon International Airport · ${LAT.toFixed(4)}, ${LON.toFixed(4)}</div>
-              <div style=${{ ...S.sub, marginTop: 6, maxWidth: 'none' }}>
-                ${MODELS.map(model => model.label).join(' · ')}
-              </div>
+              <div style=${S.h1}>BEIJING FORECAST</div>
             </div>
             <button onClick=${doFetch} style=${S.refreshBtn}>↻</button>
           </div>
@@ -657,7 +653,6 @@
             <div style=${{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style=${S.card}>
                 <div style=${S.cardTitle}>AVERAGE TRACK</div>
-                <div style=${{ fontSize: 10, color: '#64748b', marginBottom: 10 }}>3 days · mean of ${MODELS.length} Seoul-capable models</div>
                 <${AvgChart}
                   rows=${avgSeries}
                   nowMarker=${nowMarker}
@@ -698,7 +693,6 @@
                       <span style=${{ color: '#e2e8f0', fontWeight: 700 }}>${day.title}</span>
                     </div>
                     <div style=${S.consensusBig}>${day.consensus ? `${day.consensus.agreeing.length}/${day.consensus.total}` : '—'}</div>
-                    <div style=${S.consensusSub}>${day.consensus ? `models within ±1°C of median max ${day.consensus.anchor}°C` : 'No model data'}</div>
                     <div style=${{ ...S.consensusPill, borderColor: day.consensusTone ? day.consensusTone.borderColor : '#1a2030', color: day.consensusTone ? day.consensusTone.color : '#94a3b8' }}>
                       ${day.consensusTone ? day.consensusTone.label : 'No signal'}
                     </div>
@@ -723,7 +717,7 @@
           </div>
 
           <div style=${{ textAlign: 'center', fontSize: 9, color: '#1e293b', marginTop: 10 }}>
-            ${lastFetch ? `Updated: ${lastFetch.toLocaleTimeString('ru-RU', { timeZone: TZ })} Seoul` : ''}
+            ${lastFetch ? `Updated: ${lastFetch.toLocaleTimeString('ru-RU', { timeZone: TZ })} Beijing` : ''}
             ${error ? `· Last refresh error: ${error}` : ''}
           </div>
         </div>

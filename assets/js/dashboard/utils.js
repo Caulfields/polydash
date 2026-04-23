@@ -1,5 +1,31 @@
 const pct = (value) => (value == null ? '\u2014' : (value * 100).toFixed(value < 0.01 ? 2 : 1) + '%');
-const deg = (value) => (value == null ? '\u2014' : value.toFixed(0) + '\u00B0C');
+const deg = (value) => (value == null ? '\u2014' : value.toFixed(0) + tempUnitLabel());
+
+function activeTempUnit() {
+  return activeCity.marketUnit === 'F' ? 'F' : 'C';
+}
+
+function tempUnitLabel() {
+  return `\u00B0${activeTempUnit()}`;
+}
+
+function tempFromCelsius(tempC, { decimals = 0, settle = false } = {}) {
+  if (!Number.isFinite(tempC)) return null;
+  if (activeTempUnit() === 'F') {
+    const fahrenheit = (tempC * 9) / 5 + 32;
+    if (settle) return Math.round(fahrenheit);
+    if (decimals == null) return fahrenheit;
+    return Number(fahrenheit.toFixed(decimals));
+  }
+  if (settle) return Math.round(tempC);
+  if (decimals == null) return tempC;
+  return Number(tempC.toFixed(decimals));
+}
+
+function formatTempFromCelsius(tempC, { decimals = 0, settle = false } = {}) {
+  const value = tempFromCelsius(tempC, { decimals, settle });
+  return value == null ? '\u2014' : `${value}${tempUnitLabel()}`;
+}
 
 function timeAgo(ts) {
   const seconds = Math.floor((Date.now() - ts) / 1000);

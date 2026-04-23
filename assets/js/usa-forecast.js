@@ -1,506 +1,910 @@
-    const { h, render } = preact;
-    const { useState, useEffect, useCallback } = preactHooks;
-    const html = htm.bind(h);
+const { h, render } = preact;
+const { useState, useEffect, useCallback, useRef } = preactHooks;
+const html = htm.bind(h);
 
-    const MODEL = {
-      id: 'gfs',
-      label: 'GFS',
-      note: 'одна модель для всех городов'
+const HOURLY_VARS = 'temperature_2m,wind_speed_10m,cloud_cover,precipitation_probability';
+const DAILY_VARS = 'temperature_2m_max,temperature_2m_min';
+
+const SOURCES = [
+  {
+    id: 'noaa',
+    label: 'NOAA Seamless',
+    color: '#60a5fa',
+    buildUrl: (city) => `https://api.open-meteo.com/v1/gfs?latitude=${city.lat}&longitude=${city.lon}&hourly=${HOURLY_VARS}&daily=${DAILY_VARS}&timezone=${encodeURIComponent(city.timezone)}&forecast_days=3`,
+  },
+  {
+    id: 'ecmwf',
+    label: 'ECMWF IFS',
+    color: '#34d399',
+    buildUrl: (city) => `https://api.open-meteo.com/v1/ecmwf?latitude=${city.lat}&longitude=${city.lon}&hourly=${HOURLY_VARS}&daily=${DAILY_VARS}&timezone=${encodeURIComponent(city.timezone)}&forecast_days=3`,
+  },
+  {
+    id: 'best',
+    label: 'Best Match',
+    color: '#f59e0b',
+    buildUrl: (city) => `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&hourly=${HOURLY_VARS}&daily=${DAILY_VARS}&timezone=${encodeURIComponent(city.timezone)}&forecast_days=3`,
+  },
+];
+
+const CITIES = [
+  {
+    id: 'nyc',
+    name: 'New York',
+    station: 'KLGA',
+    airport: 'LaGuardia',
+    timezone: 'America/New_York',
+    lat: 40.774722,
+    lon: -73.871944,
+    slugPrefix: 'highest-temperature-in-nyc-on',
+  },
+  {
+    id: 'dallas',
+    name: 'Dallas',
+    station: 'KDAL',
+    airport: 'Dallas Love Field',
+    timezone: 'America/Chicago',
+    lat: 32.847222,
+    lon: -96.851667,
+    slugPrefix: 'highest-temperature-in-dallas-on',
+  },
+];
+
+function cityNowParts(timezone, date = new Date()) {
+  return {
+    dateKey: date.toLocaleDateString('en-CA', { timeZone: timezone }),
+    timeLabel: date.toLocaleTimeString('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit' }),
+    hour: parseInt(date.toLocaleString('en-GB', { timeZone: timezone, hour: 'numeric', hour12: false }), 10),
+    minute: parseInt(date.toLocaleString('en-GB', { timeZone: timezone, minute: 'numeric' }), 10),
+  };
+}
+
+function dayTitle(dateKey) {
+  const parts = dateKey.split('-');
+  if (parts.length !== 3) return dateKey;
+  return `${parts[2]}.${parts[1]}`;
+}
+
+function cToF(tempC) {
+  return (tempC * 9) / 5 + 32;
+}
+
+function formatTemp(value, decimals = 1) {
+  if (value == null || Number.isNaN(value)) return '—';
+  return `${value.toFixed(decimals)}°F`;
+}
+
+function formatIntTemp(value) {
+  if (value == null || Number.isNaN(value)) return '—';
+  return `${Math.round(value)}°F`;
+}
+
+function pct(value) {
+  if (value == null || Number.isNaN(value)) return '—';
+  return `${(value * 100).toFixed(value < 0.01 ? 2 : 1)}%`;
+}
+
+function parseUsMetarTenths(rawOb) {
+  if (!rawOb) return null;
+  const match = rawOb.match(/\bT([01])(\d{3})([01])(\d{3})\b/);
+  if (!match) return null;
+  const parseSignedTenths = (sign, digits) => (sign === '1' ? -1 : 1) * (parseInt(digits, 10) / 10);
+  return {
+    tempC: parseSignedTenths(match[1], match[2]),
+    dewpC: parseSignedTenths(match[3], match[4]),
+  };
+}
+
+function parseModelData(hourly, timezone) {
+  const times = hourly.time || [];
+  const temps = hourly.temperature_2m || [];
+  const winds = hourly.wind_speed_10m || [];
+  const clouds = hourly.cloud_cover || [];
+  const pops = hourly.precipitation_probability || [];
+  return times.map((time, i) => ({
+    dateKey: time.slice(0, 10),
+    hour: parseInt(time.slice(11, 13), 10),
+    label: time.slice(11, 16),
+    temp: temps[i] != null ? Math.round(cToF(temps[i]) * 10) / 10 : null,
+    wind: winds[i] ?? null,
+    cloud: clouds[i] ?? null,
+    pop: pops[i] ?? null,
+    timezone,
+  }));
+}
+
+function parseDailyRows(daily) {
+  const times = daily.time || [];
+  const maxTemps = daily.temperature_2m_max || [];
+  const minTemps = daily.temperature_2m_min || [];
+  return times.map((dateKey, i) => ({
+    dateKey,
+    title: dayTitle(dateKey),
+    max: maxTemps[i] != null ? Math.round(cToF(maxTemps[i])) : null,
+    min: minTemps[i] != null ? Math.round(cToF(minTemps[i])) : null,
+  }));
+}
+
+function parseMetarRows(raw, city) {
+  const todayKey = cityNowParts(city.timezone).dateKey;
+  return (Array.isArray(raw) ? raw : [])
+    .filter((row) => row && row.rawOb && (row.reportTime || row.obsTime))
+    .map((row) => {
+      const exact = parseUsMetarTenths(row.rawOb);
+      const tempC = exact?.tempC ?? row.temp;
+      const time = new Date(row.reportTime || row.obsTime);
+      if (!Number.isFinite(tempC) || Number.isNaN(time.getTime())) return null;
+      const parts = cityNowParts(city.timezone, time);
+      const tempF = cToF(tempC);
+      return {
+        time,
+        dateKey: parts.dateKey,
+        hour: parts.hour,
+        minute: parts.minute,
+        hourFrac: parts.hour + parts.minute / 60,
+        label: parts.timeLabel,
+        temp: Math.round(tempF * 10) / 10,
+        settled: Math.round(tempF),
+        rawOb: row.rawOb,
+      };
+    })
+    .filter(Boolean)
+    .filter((row) => row.dateKey === todayKey)
+    .sort((a, b) => a.time - b.time);
+}
+
+function modelPeak(rows) {
+  const validRows = rows.filter((row) => row && row.temp != null);
+  if (!validRows.length) return null;
+  return validRows.reduce((max, row) => (row.temp > max.temp ? row : max), validRows[0]);
+}
+
+function buildAverageSeries(referenceRows, rowsBySource) {
+  return referenceRows.map((row, i) => {
+    const temps = SOURCES.map((source) => (rowsBySource[source.id] || [])[i]?.temp).filter((value) => value != null);
+    return {
+      dateKey: row.dateKey,
+      hour: row.hour,
+      label: row.label,
+      dayTitle: row.dayTitle,
+      temp: temps.length ? Math.round((temps.reduce((sum, value) => sum + value, 0) / temps.length) * 10) / 10 : null,
+      count: temps.length,
+    };
+  });
+}
+
+function buildConsensus(peaks) {
+  if (!peaks.length) return null;
+  const sortedTemps = peaks.map((item) => item.peak.temp).slice().sort((a, b) => a - b);
+  const mid = Math.floor(sortedTemps.length / 2);
+  const anchor = sortedTemps.length % 2
+    ? sortedTemps[mid]
+    : Math.round(((sortedTemps[mid - 1] + sortedTemps[mid]) / 2) * 10) / 10;
+  const agreeing = peaks.filter((item) => Math.abs(item.peak.temp - anchor) <= 1);
+  return { anchor, agreeing, total: peaks.length, min: sortedTemps[0], max: sortedTemps[sortedTemps.length - 1] };
+}
+
+function consensusTone(consensus) {
+  if (!consensus || !consensus.total) return null;
+  const ratio = consensus.agreeing.length / consensus.total;
+  if (ratio >= 0.8) return { label: 'Strong agreement', borderColor: '#16a34a', color: '#4ade80' };
+  if (ratio >= 0.5) return { label: 'Partial agreement', borderColor: '#ca8a04', color: '#facc15' };
+  return { label: 'Low agreement', borderColor: '#7f1d1d', color: '#f87171' };
+}
+
+function buildMetarChangePoints(rows) {
+  const series = (Array.isArray(rows) ? rows : [])
+    .filter((row) => row && row.temp != null && Number.isFinite(row.hourFrac))
+    .map((row) => ({ hourFrac: row.hourFrac, temp: row.temp, settled: row.settled }))
+    .sort((a, b) => a.hourFrac - b.hourFrac);
+
+  if (series.length < 2) return [];
+
+  const tempAt = (frac) => {
+    if (frac <= series[0].hourFrac) return series[0].temp;
+    if (frac >= series[series.length - 1].hourFrac) return series[series.length - 1].temp;
+    for (let i = 1; i < series.length; i += 1) {
+      const left = series[i - 1];
+      const right = series[i];
+      if (frac <= right.hourFrac) {
+        const span = Math.max(right.hourFrac - left.hourFrac, 1e-6);
+        const t = (frac - left.hourFrac) / span;
+        return left.temp + (right.temp - left.temp) * t;
+      }
+    }
+    return series[series.length - 1].temp;
+  };
+
+  const start = Math.ceil(series[0].hourFrac * 2) / 2;
+  const end = Math.floor(series[series.length - 1].hourFrac * 2) / 2;
+  const points = [];
+  let prevRounded = null;
+
+  for (let frac = start; frac <= end + 1e-6; frac += 0.5) {
+    const temp = tempAt(frac);
+    const rounded = Math.round(temp);
+    if (prevRounded === null) {
+      prevRounded = rounded;
+      continue;
+    }
+    if (rounded !== prevRounded) {
+      const totalMinutes = Math.round(frac * 60);
+      const hour = Math.floor(totalMinutes / 60) % 24;
+      const minute = ((totalMinutes % 60) + 60) % 60;
+      points.push({
+        hourFrac: hour + minute / 60,
+        temp,
+        metarTemp: rounded,
+        label: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+      });
+      prevRounded = rounded;
+    }
+  }
+
+  return points;
+}
+
+function findMetarNearest(rows, targetTime) {
+  if (!rows.length) return null;
+  let best = rows[0];
+  let bestD = Infinity;
+  const target = targetTime.getTime();
+  for (const row of rows) {
+    const d = Math.abs(row.time.getTime() - target);
+    if (d < bestD) {
+      bestD = d;
+      best = row;
+    }
+  }
+  return best;
+}
+
+function AvgChart({ rows, nowMarker }) {
+  if (!rows.length) return null;
+  const validRows = rows.filter((row) => row.temp != null);
+  if (!validRows.length) return null;
+
+  const W = 860;
+  const H = 240;
+  const PAD = { top: 18, right: 18, bottom: 30, left: 44 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+  const yMin = Math.floor(Math.min(...validRows.map((row) => row.temp)) - 1);
+  const yMax = Math.ceil(Math.max(...validRows.map((row) => row.temp)) + 1);
+  const xScale = (i) => PAD.left + (i / Math.max(rows.length - 1, 1)) * innerW;
+  const yScale = (temp) => PAD.top + innerH - ((temp - yMin) / Math.max(yMax - yMin, 1)) * innerH;
+  const dayBreaks = rows.map((row, i) => (i > 0 && row.dateKey !== rows[i - 1].dateKey ? i : null)).filter((i) => i != null);
+  const points = rows.map((row, i) => (row.temp != null ? `${xScale(i)},${yScale(row.temp)}` : null)).filter(Boolean).join(' ');
+
+  return html`
+    <div>
+      <svg viewBox="0 0 ${W} ${H}" style=${{ width: '100%', display: 'block' }}>
+        ${Array.from({ length: yMax - yMin + 1 }, (_, idx) => yMin + idx).map((value) => html`
+          <g key=${value}>
+            <line x1=${PAD.left} x2=${PAD.left + innerW} y1=${yScale(value)} y2=${yScale(value)} stroke="#16202f" stroke-width="1" />
+            <text x=${PAD.left - 6} y=${yScale(value) + 4} text-anchor="end" font-size="9" fill="#425066">${value}°F</text>
+          </g>
+        `)}
+        ${dayBreaks.map((i) => html`
+          <line key=${`d-${i}`} x1=${xScale(i)} x2=${xScale(i)} y1=${PAD.top} y2=${PAD.top + innerH} stroke="#223046" stroke-width="1" stroke-dasharray="4 4" />
+        `)}
+        ${rows.map((row, i) => (i === 0 || row.dateKey !== rows[i - 1].dateKey) ? html`
+          <text key=${`day-${row.dateKey}`} x=${xScale(i) + 6} y=${PAD.top + 10} font-size="9" fill="#64748b">${row.dayTitle}</text>
+        ` : null)}
+        ${rows.map((row, i) => i % 6 === 0 ? html`
+          <text key=${`${row.dateKey}-${row.label}`} x=${xScale(i)} y=${H - 6} text-anchor="middle" font-size="9" fill="#4b5563">${row.label}</text>
+        ` : null)}
+        <polyline points=${points} fill="none" stroke="#f97316" stroke-width="2.5" />
+        ${rows.map((row, i) => row.temp != null ? html`
+          <circle key=${`${row.dateKey}-${row.label}-dot`} cx=${xScale(i)} cy=${yScale(row.temp)} r="3.5" fill="#f97316" stroke="#0c1017" stroke-width="2" />
+        ` : null)}
+        ${nowMarker ? html`
+          <line x1=${xScale(nowMarker.index)} x2=${xScale(nowMarker.index)} y1=${PAD.top} y2=${PAD.top + innerH} stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="5 4" />
+        ` : null}
+      </svg>
+    </div>
+  `;
+}
+
+function TodayOverlayChart({ modelRows, metarRows, nowMarker, modelLabel, trackLabel, modelColor, showRealMetar = true }) {
+  const [hover, setHover] = useState(null);
+  const [zoom, setZoom] = useState({ start: 0, end: 24 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef(null);
+
+  if (!modelRows.length && !metarRows.length) return null;
+
+  const validModelRows = modelRows
+    .filter((row) => row && row.temp != null)
+    .map((row) => ({ ...row, hourFrac: row.hour + (row.minute || 0) / 60 }))
+    .sort((a, b) => a.hourFrac - b.hourFrac);
+  const validMetarRows = metarRows
+    .filter((row) => row && row.temp != null && Number.isFinite(row.hourFrac))
+    .sort((a, b) => a.hourFrac - b.hourFrac);
+  const validRows = [...validModelRows, ...validMetarRows];
+  if (!validModelRows.length) return null;
+
+  const W = 860;
+  const H = 340;
+  const PAD = { top: 18, right: 18, bottom: 34, left: 44 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+  const yMin = Math.floor(Math.min(...validRows.map((row) => row.temp)) - 1);
+  const yMax = Math.ceil(Math.max(...validRows.map((row) => row.temp)) + 1);
+  const dataMin = Math.min(...validModelRows.map((row) => row.hourFrac));
+  const dataMax = Math.max(...validModelRows.map((row) => row.hourFrac));
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const viewStart = clamp(zoom.start, dataMin, Math.max(dataMax - 0.1, dataMin));
+  const viewEnd = clamp(zoom.end, viewStart + 0.1, dataMax);
+  const viewSpan = Math.max(viewEnd - viewStart, 0.1);
+  const xScale = (frac) => PAD.left + ((frac - viewStart) / viewSpan) * innerW;
+  const yScale = (temp) => PAD.top + innerH - ((temp - yMin) / Math.max(yMax - yMin, 1)) * innerH;
+  const visibleModelRows = validModelRows.filter((row) => row.hourFrac >= viewStart - 0.5 && row.hourFrac <= viewEnd + 0.5);
+  const visibleMetarRows = validMetarRows.filter((row) => row.hourFrac >= viewStart - 0.5 && row.hourFrac <= viewEnd + 0.5);
+  const visibleMetarChangePoints = buildMetarChangePoints(validMetarRows).filter((pt) => pt.hourFrac >= viewStart - 0.5 && pt.hourFrac <= viewEnd + 0.5);
+  const modelPoints = visibleModelRows.map((row) => `${xScale(row.hourFrac)},${yScale(row.temp)}`).join(' ');
+  const metarPoints = visibleMetarRows.map((row) => `${xScale(row.hourFrac)},${yScale(row.temp)}`).join(' ');
+
+  const formatClock = (hour) => {
+    const totalMinutes = Math.round(hour * 60);
+    const hh = String(Math.floor(((totalMinutes / 60) % 24 + 24) % 24)).padStart(2, '0');
+    const mm = String(((totalMinutes % 60) + 60) % 60).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const resetZoom = () => setZoom({ start: dataMin, end: dataMax });
+
+  useEffect(() => {
+    if (!dragging) return undefined;
+    const prevUserSelect = document.body.style.userSelect;
+    const prevWebkitUserSelect = document.body.style.webkitUserSelect;
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+
+    const handleMove = (event) => {
+      if (!dragRef.current) return;
+      const { startX, start, end, width } = dragRef.current;
+      const span = end - start;
+      if (span >= (dataMax - dataMin) - 1e-6) return;
+      const deltaHr = -((event.clientX - startX) / Math.max(width, 1)) * span;
+      const nextStart = clamp(start + deltaHr, dataMin, dataMax - span);
+      setZoom({ start: nextStart, end: nextStart + span });
     };
 
-    const CITIES = [
-      { id: 'nyc', name: 'New York', state: 'NY', timezone: 'America/New_York', lat: 40.7128, lon: -74.0060 },
-      { id: 'bos', name: 'Boston', state: 'MA', timezone: 'America/New_York', lat: 42.3601, lon: -71.0589 },
-      { id: 'dc', name: 'Washington', state: 'DC', timezone: 'America/New_York', lat: 38.9072, lon: -77.0369 },
-      { id: 'atl', name: 'Atlanta', state: 'GA', timezone: 'America/New_York', lat: 33.7490, lon: -84.3880 },
-      { id: 'mia', name: 'Miami', state: 'FL', timezone: 'America/New_York', lat: 25.7617, lon: -80.1918 },
-      { id: 'chi', name: "Chicago O'Hare", state: 'IL', timezone: 'America/Chicago', lat: 41.9769403, lon: -87.9081497 },
-      { id: 'dal', name: 'Dallas', state: 'TX', timezone: 'America/Chicago', lat: 32.7767, lon: -96.7970 },
-      { id: 'hou', name: 'Houston', state: 'TX', timezone: 'America/Chicago', lat: 29.7604, lon: -95.3698 },
-      { id: 'den', name: 'Denver', state: 'CO', timezone: 'America/Denver', lat: 39.7392, lon: -104.9903 },
-      { id: 'phx', name: 'Phoenix', state: 'AZ', timezone: 'America/Phoenix', lat: 33.4484, lon: -112.0740 },
-      { id: 'sea', name: 'Seattle', state: 'WA', timezone: 'America/Los_Angeles', lat: 47.6062, lon: -122.3321 },
-      { id: 'sf',  name: 'San Francisco', state: 'CA', timezone: 'America/Los_Angeles', lat: 37.7749, lon: -122.4194 }
-    ];
+    const handleUp = () => {
+      dragRef.current = null;
+      setDragging(false);
+    };
 
-    const MODEL_COLOR = '#60a5fa';
-    const ACCENT = '#f59e0b';
-    const SUB = '#7c8aa1';
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.webkitUserSelect = prevWebkitUserSelect;
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [dragging, dataMax, dataMin]);
 
-    const fmtTime = (date, tz) => new Intl.DateTimeFormat('ru-RU', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
+  const hoverModel = hover ? (() => {
+    if (!validModelRows.length) return null;
+    let best = validModelRows[0];
+    let bestD = Infinity;
+    validModelRows.forEach((row) => {
+      const distance = Math.abs(row.hourFrac - hover.hour);
+      if (distance < bestD) {
+        bestD = distance;
+        best = row;
+      }
+    });
+    return best;
+  })() : null;
 
-    const fmtDate = (date, tz) => new Intl.DateTimeFormat('ru-RU', {
-      timeZone: tz,
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short'
-    }).format(date);
+  const hoverMetar = showRealMetar && hover ? (() => {
+    if (!validMetarRows.length) return null;
+    let best = validMetarRows[0];
+    let bestD = Infinity;
+    validMetarRows.forEach((row) => {
+      const distance = Math.abs(row.hourFrac - hover.hour);
+      if (distance < bestD) {
+        bestD = distance;
+        best = row;
+      }
+    });
+    return best && bestD <= 0.8 ? best : null;
+  })() : null;
 
-    const fmtHour = (date, tz) => new Intl.DateTimeFormat('ru-RU', {
-      timeZone: tz,
-      hour: '2-digit'
-    }).format(date);
+  return html`
+    <div>
+      <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
+        <div style=${{ fontSize: 10, color: '#64748b' }}>${trackLabel}</div>
+        <div style=${{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick=${resetZoom} style=${S.modeBtn}>Reset Zoom</button>
+        </div>
+      </div>
 
-    function cityHourFraction(tz, date = new Date()) {
-      const hour = parseInt(new Intl.DateTimeFormat('en-GB', {
-        timeZone: tz,
-        hour: 'numeric',
-        hour12: false
-      }).format(date), 10);
-      const minute = parseInt(new Intl.DateTimeFormat('en-GB', {
-        timeZone: tz,
-        minute: 'numeric'
-      }).format(date), 10);
-      return hour + minute / 60;
-    }
-
-    function pickCurrentRow(rows, tz) {
-      if (!rows.length) return null;
-      const now = new Date();
-      const today = now.toLocaleDateString('en-CA', { timeZone: tz });
-      const hour = parseInt(new Intl.DateTimeFormat('en-GB', {
-        timeZone: tz,
-        hour: 'numeric',
-        hour12: false
-      }).format(now), 10);
-      return rows.find(row => row.dateKey === today && row.hour === hour) || rows[0];
-    }
-
-    function buildRows(hourly) {
-      const times = hourly.time || [];
-      const temps = hourly.temperature_2m || [];
-      const winds = hourly.wind_speed_10m || [];
-      const clouds = hourly.cloud_cover || [];
-      const pops = hourly.precipitation_probability || [];
-      return times.slice(0, 24).map((time, i) => ({
-        dateKey: time.slice(0, 10),
-        hour: parseInt(time.slice(11, 13), 10),
-        label: time.slice(11, 16),
-        temp: temps[i] ?? null,
-        wind: winds[i] ?? null,
-        cloud: clouds[i] ?? null,
-        pop: pops[i] ?? null
-      }));
-    }
-
-    function linePath(rows, width, height, pad) {
-      const valid = rows.filter(row => row.temp != null);
-      if (!valid.length) return '';
-      const temps = valid.map(row => row.temp);
-      const min = Math.floor(Math.min(...temps) - 1);
-      const max = Math.ceil(Math.max(...temps) + 1);
-      const innerW = width - pad.left - pad.right;
-      const innerH = height - pad.top - pad.bottom;
-      const x = idx => pad.left + (idx / Math.max(rows.length - 1, 1)) * innerW;
-      const y = temp => pad.top + innerH - ((temp - min) / Math.max(max - min, 1)) * innerH;
-      return rows.map((row, i) => row.temp != null ? `${x(i)},${y(row.temp)}` : null).filter(Boolean).join(' ');
-    }
-
-    function MiniChart({ rows, nowFrac = null }) {
-      if (!rows.length) return null;
-      const valid = rows.filter(row => row.temp != null);
-      if (!valid.length) return null;
-      const W = 560;
-      const H = 380;
-      const PAD = { top: 24, right: 22, bottom: 38, left: 36 };
-      const temps = valid.map(row => row.temp);
-      const min = Math.floor(Math.min(...temps) - 1);
-      const max = Math.ceil(Math.max(...temps) + 1);
-      const innerW = W - PAD.left - PAD.right;
-      const innerH = H - PAD.top - PAD.bottom;
-      const x = idx => PAD.left + (idx / Math.max(rows.length - 1, 1)) * innerW;
-      const y = temp => PAD.top + innerH - ((temp - min) / Math.max(max - min, 1)) * innerH;
-      const points = linePath(rows, W, H, PAD);
-
-      return html`
-        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style=${{ width:'100%', height:'380px', display:'block' }}>
-          ${Array.from({ length: max - min + 1 }, (_, idx) => min + idx).map(v => html`
-            <g key=${v}>
-              <line x1=${PAD.left} x2=${PAD.left + innerW} y1=${y(v)} y2=${y(v)} stroke="#152033" stroke-width="1" />
-              <text x=${PAD.left - 4} y=${y(v) + 3.5} text-anchor="end" font-size="9" fill="#55657f">${v}°</text>
+      <div
+        style=${{ position: 'relative', overflow: 'hidden', borderRadius: 8 }}
+        onMouseLeave=${() => setHover(null)}
+        onMouseMove=${(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          const frac = viewStart + ((x - PAD.left) / innerW) * viewSpan;
+          setHover({ hour: clamp(frac, viewStart, viewEnd), x, y, width: rect.width, height: rect.height });
+        }}
+        onWheel=${(event) => {
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const center = viewStart + ((x - PAD.left) / innerW) * viewSpan;
+          const zoomFactor = event.deltaY > 0 ? 1.18 : 0.84;
+          const nextSpan = clamp(viewSpan * zoomFactor, 2, dataMax - dataMin);
+          const nextStart = clamp(center - (((center - viewStart) / viewSpan) * nextSpan), dataMin, dataMax - nextSpan);
+          setZoom({ start: nextStart, end: nextStart + nextSpan });
+        }}
+        onMouseDown=${(event) => {
+          dragRef.current = { startX: event.clientX, start: viewStart, end: viewEnd, width: innerW };
+          setDragging(true);
+        }}
+      >
+        <svg viewBox="0 0 ${W} ${H}" style=${{ width: '100%', display: 'block', background: '#0c1017' }}>
+          ${Array.from({ length: yMax - yMin + 1 }, (_, idx) => yMin + idx).map((value) => html`
+            <g key=${value}>
+              <line x1=${PAD.left} x2=${PAD.left + innerW} y1=${yScale(value)} y2=${yScale(value)} stroke="#16202f" stroke-width="1" />
+              <text x=${PAD.left - 6} y=${yScale(value) + 4} text-anchor="end" font-size="9" fill="#425066">${value}°F</text>
             </g>
           `)}
-          ${nowFrac != null ? html`
-            <g>
-              <line x1=${PAD.left + (Math.max(0, Math.min(24, nowFrac)) / 24) * innerW} x2=${PAD.left + (Math.max(0, Math.min(24, nowFrac)) / 24) * innerW} y1=${PAD.top} y2=${PAD.top + innerH} stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5 4" />
-              <text x=${PAD.left + (Math.max(0, Math.min(24, nowFrac)) / 24) * innerW} y=${PAD.top + 10} text-anchor="middle" font-size="9" fill="#f59e0b">now</text>
-            </g>
-          ` : null}
-          <polyline points=${points} fill="none" stroke=${MODEL_COLOR} stroke-width="2.5" />
-          ${rows.map((row, i) => row.temp != null ? html`
-            <circle key=${row.label} cx=${x(i)} cy=${y(row.temp)} r="3" fill=${MODEL_COLOR} stroke="#0b1220" stroke-width="2" />
-          ` : null)}
-          ${rows.filter((_, i) => i % 6 === 0).map((row, i) => {
-            const idx = rows.indexOf(row);
-            return html`<text key=${row.label + i} x=${x(idx)} y=${H - 5} text-anchor="middle" font-size="9" fill="#55657f">${row.label}</text>`;
+          ${Array.from({ length: 25 }, (_, hour) => hour).filter((hour) => hour % 2 === 0).map((hour) => {
+            const visible = hour >= viewStart && hour <= viewEnd;
+            return visible ? html`
+              <g key=${hour}>
+                <line x1=${xScale(hour)} x2=${xScale(hour)} y1=${PAD.top} y2=${PAD.top + innerH} stroke="#16202f" stroke-width="1" />
+                <text x=${xScale(hour)} y=${H - 6} text-anchor="middle" font-size="9" fill="#4b5563">${String(hour).padStart(2, '0')}:00</text>
+              </g>
+            ` : null;
           })}
-        </svg>
-      `;
-    }
-
-    function navLink(href, label, active) {
-      return html`
-        <a href=${href} style=${{
-          textDecoration:'none',
-          color: active ? '#dbeafe' : '#8b95a5',
-          border: `1px solid ${active ? '#2563eb' : '#1c2536'}`,
-          background: active ? 'rgba(37,99,235,0.16)' : 'rgba(11,18,32,0.7)',
-          padding: '6px 10px',
-          borderRadius: 6,
-          fontSize: 10,
-          letterSpacing: 0.4
-        }}>${label}</a>
-      `;
-    }
-
-    function CityCard({ city, data, selected, onSelect }) {
-      const statusColor = data?.error ? '#f87171' : data?.rows?.length ? MODEL_COLOR : '#64748b';
-      return html`
-        <button onClick=${() => onSelect(city.id)} style=${{
-          textAlign:'left',
-          width:'100%',
-          minHeight: 110,
-          background: selected ? 'rgba(37,99,235,0.10)' : 'rgba(10,15,24,0.85)',
-          border: `1px solid ${selected ? '#2b5fd9' : '#1c2536'}`,
-          borderRadius: 14,
-          padding: 16,
-          color: '#d8e1ee',
-          cursor: 'pointer',
-          boxShadow: selected ? '0 0 0 1px rgba(96,165,250,0.2) inset' : 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between'
-        }}>
-          <div style=${{ display:'flex', justifyContent:'space-between', gap:10, alignItems:'baseline' }}>
-            <div>
-              <div style=${{ fontSize:16, fontWeight:700, letterSpacing:0.4 }}>${city.name}</div>
-              <div style=${{ fontSize:11, color:'#7c8aa1', marginTop:4 }}>${city.state} · ${fmtTime(new Date(), city.timezone)} · ${fmtDate(new Date(), city.timezone)}</div>
-            </div>
-            <div style=${{ color: statusColor, fontSize:11, fontWeight:700, textAlign:'right' }}>
-              ${data?.error ? 'ошибка' : MODEL.label}
-            </div>
-          </div>
-
-          <div style=${{ marginTop: 16, display:'flex', justifyContent:'space-between', alignItems:'center', color:'#7c8aa1', fontSize:11 }}>
-            <span>${data?.rows?.length ? 'Open city' : 'Loading forecast'}</span>
-            <span>${selected ? 'Selected' : ''}</span>
-          </div>
-        </button>
-      `;
-    }
-
-    function App() {
-      const [cities, setCities] = useState([]);
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
-      const [selectedId, setSelectedId] = useState(CITIES[0].id);
-      const [lastFetch, setLastFetch] = useState(null);
-      const [nowTick, setNowTick] = useState(() => new Date());
-
-      const loadCities = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-          const settled = await Promise.allSettled(CITIES.map(async city => {
-            const url = `https://api.open-meteo.com/v1/gfs?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m,wind_speed_10m,cloud_cover,precipitation_probability&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=1&timezone=${encodeURIComponent(city.timezone)}`;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const json = await response.json();
-            return { ...city, rows: buildRows(json.hourly || {}), source: json };
-          }));
-          const results = settled.map((item, index) => item.status === 'fulfilled'
-            ? item.value
-            : { ...CITIES[index], rows: [], error: item.reason?.message || 'Fetch failed' });
-          setCities(results);
-          setLastFetch(new Date());
-          const failures = results.filter(city => city.error).length;
-          setError(failures ? `${failures} городов не загрузились` : null);
-          setSelectedId(prev => results.some(city => city.id === prev) ? prev : (results[0]?.id || CITIES[0].id));
-        } catch (e) {
-          setError(e.message || 'Fetch failed');
-        }
-        setLoading(false);
-      }, []);
-
-      useEffect(() => {
-        loadCities();
-        const id = setInterval(loadCities, 10 * 60 * 1000);
-        return () => clearInterval(id);
-      }, [loadCities]);
-
-      useEffect(() => {
-        const id = setInterval(() => setNowTick(new Date()), 60 * 1000);
-        return () => clearInterval(id);
-      }, []);
-
-      const cityDataMap = cities.reduce((acc, city) => (acc[city.id] = city, acc), {});
-      const selectedCity = CITIES.find(city => city.id === selectedId) || CITIES[0];
-      const selectedData = cityDataMap[selectedCity.id];
-      const rows = selectedData?.rows || [];
-      const current = rows.length ? pickCurrentRow(rows, selectedCity.timezone) : null;
-      const nowFrac = cityHourFraction(selectedCity.timezone, nowTick);
-      const totalLoaded = cities.filter(city => city.rows && city.rows.length).length;
-      const warmest = cities.filter(city => city.rows && city.rows.length).reduce((best, city) => {
-        const cur = pickCurrentRow(city.rows, city.timezone);
-        if (!cur || cur.temp == null) return best;
-        if (!best || cur.temp > best.temp) return { city, temp: cur.temp };
-        return best;
-      }, null);
-      const coldest = cities.filter(city => city.rows && city.rows.length).reduce((best, city) => {
-        const cur = pickCurrentRow(city.rows, city.timezone);
-        if (!cur || cur.temp == null) return best;
-        if (!best || cur.temp < best.temp) return { city, temp: cur.temp };
-        return best;
-      }, null);
-
-      const hourlyTable = rows.slice(0, 12);
-
-      return html`
-        <div style=${{ maxWidth: 1480, margin: '0 auto', padding: 16 }}>
-          <div style=${{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-            ${navLink('/', '← Polydash', false)}
-            ${navLink('/weth/forecast.html', 'London Forecast', false)}
-            ${navLink('/weth/paris-forecast.html', 'Paris Forecast', false)}
-            ${navLink('/weth/seoul-forecast.html', 'Seoul Forecast', false)}
-            ${navLink('/weth/usa-forecast.html', 'USA Forecast', true)}
-          </div>
-
-          <div style=${{
-            display:'grid',
-            gridTemplateColumns:'1.5fr 1fr',
-            gap:14,
-            alignItems:'stretch',
-            marginBottom: 16
-          }}>
-            <div style=${panel()}>
-              <div style=${{ display:'flex', justifyContent:'space-between', gap:12, alignItems:'start', flexWrap:'wrap' }}>
-                <div>
-                  <div style=${{ fontSize:12, color:'#7c8aa1', letterSpacing:1.6, marginBottom:6 }}>USA GFS FORECAST DRAFT</div>
-                  <div style=${{ fontSize:30, fontWeight:800, letterSpacing:1, color:'#f8fafc' }}>Много городов, одна модель</div>
-                  <div style=${{ fontSize:12, color:'#8b95a5', marginTop:8, maxWidth:760, lineHeight:1.6 }}>
-                    Пока это черновик. Все города США считаются одной моделью Open-Meteo, без региональной логики.
-                    Потом ты дашь правила, и я соберу нужную структуру.
-                  </div>
-                </div>
-                <button onClick=${loadCities} style=${refreshBtn()}>↻</button>
-              </div>
-              <div style=${{ display:'flex', gap:8, flexWrap:'wrap', marginTop:14 }}>
-                <span style=${badge('#1f2937', '#60a5fa')}>Модель: ${MODEL.label}</span>
-                <span style=${badge('#1f2937', '#f59e0b')}>Городов: ${CITIES.length}</span>
-                <span style=${badge('#1f2937', '#22c55e')}>Загружено: ${totalLoaded}</span>
-              </div>
-            </div>
-
-            <div style=${panel()}>
-              <div style=${{ fontSize: 11, color: '#7c8aa1', marginBottom: 10, letterSpacing: 1.2 }}>SUMMARY</div>
-              <div style=${summaryRow()}>
-                <span style=${summaryLabel()}>Теплее всего</span>
-                <span style=${summaryValue('#f8fafc')}>${warmest ? `${warmest.city.name} ${Math.round(warmest.temp)}°C` : '—'}</span>
-              </div>
-              <div style=${summaryRow()}>
-                <span style=${summaryLabel()}>Холоднее всего</span>
-                <span style=${summaryValue('#f8fafc')}>${coldest ? `${coldest.city.name} ${Math.round(coldest.temp)}°C` : '—'}</span>
-              </div>
-              <div style=${summaryRow()}>
-                <span style=${summaryLabel()}>Обновление</span>
-                <span style=${summaryValue('#dbeafe')}>${lastFetch ? fmtTime(lastFetch, 'America/New_York') + ' ET' : '—'}</span>
-              </div>
-            </div>
-          </div>
-
-          ${error && !totalLoaded ? html`
-            <div style=${errorBox()}>
-              <div style=${{ fontSize: 16, marginBottom: 8 }}>Не удалось загрузить данные</div>
-              <div style=${{ fontSize: 11, color: '#94a3b8' }}>${error}</div>
-            </div>
+          ${visibleMetarChangePoints.map((point) => html`
+            <g key=${point.label}>
+              <line x1=${xScale(point.hourFrac)} x2=${xScale(point.hourFrac)} y1=${PAD.top} y2=${PAD.top + innerH} stroke="rgba(148,163,184,0.18)" stroke-width="1" stroke-dasharray="4 4" />
+              <text x=${xScale(point.hourFrac)} y=${PAD.top + 12} text-anchor="middle" font-size="9" fill="#94a3b8">${point.metarTemp}F</text>
+            </g>
+          `)}
+          <polyline points=${modelPoints} fill="none" stroke=${modelColor} stroke-width="2.5" />
+          ${showRealMetar && visibleMetarRows.length ? html`<polyline points=${metarPoints} fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-dasharray="6 4" />` : null}
+          ${visibleModelRows.map((row, index) => html`
+            <circle key=${`${row.label}-${index}`} cx=${xScale(row.hourFrac)} cy=${yScale(row.temp)} r="3.5" fill=${modelColor} stroke="#0c1017" stroke-width="2" />
+          `)}
+          ${showRealMetar ? visibleMetarRows.map((row, index) => html`
+            <circle key=${`m-${index}`} cx=${xScale(row.hourFrac)} cy=${yScale(row.temp)} r="3.2" fill="#94a3b8" stroke="#0c1017" stroke-width="2" />
+          `) : null}
+          ${hover ? html`
+            <line x1=${xScale(hover.hour)} x2=${xScale(hover.hour)} y1=${PAD.top} y2=${PAD.top + innerH} stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.7" />
           ` : null}
+          ${hoverModel ? html`
+            <circle cx=${xScale(hoverModel.hourFrac)} cy=${yScale(hoverModel.temp)} r="5" fill=${modelColor} stroke="#f8fafc" stroke-width="2" />
+          ` : null}
+          ${hoverMetar ? html`
+            <circle cx=${xScale(hoverMetar.hourFrac)} cy=${yScale(hoverMetar.temp)} r="5" fill="#94a3b8" stroke="#f8fafc" stroke-width="2" />
+          ` : null}
+          ${nowMarker ? html`
+            <line x1=${xScale(nowMarker.index)} x2=${xScale(nowMarker.index)} y1=${PAD.top} y2=${PAD.top + innerH} stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="5 4" />
+          ` : null}
+        </svg>
 
+        ${hover && hoverModel ? html`
           <div style=${{
-            display:'grid',
-            gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
-            gap:12
+            position: 'absolute',
+            left: clamp(hover.x + 14, 10, Math.max(hover.width - 196, 10)),
+            top: clamp(hover.y - 70, 10, Math.max(hover.height - 108, 10)),
+            minWidth: 170,
+            background: 'rgba(12,16,23,0.96)',
+            border: '1px solid #243040',
+            borderRadius: 8,
+            padding: '8px 10px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            pointerEvents: 'none',
+            zIndex: 5,
           }}>
-            ${CITIES.map(city => html`
-              <${CityCard}
-                key=${city.id}
-                city=${city}
-                data=${cityDataMap[city.id]}
-                selected=${selectedId === city.id}
-                onSelect=${setSelectedId}
-              />
-            `)}
+            <div style=${{ fontSize: 10, color: '#94a3b8', marginBottom: 4 }}>${trackLabel}</div>
+            <div style=${{ fontSize: 12, color: '#f8fafc', fontWeight: 600 }}>${formatClock(hover.hour)}</div>
+            <div style=${{ marginTop: 4, fontSize: 12, color: modelColor }}>${modelLabel}: ${formatTemp(hoverModel.temp)}</div>
+            ${hoverMetar ? html`<div style=${{ marginTop: 2, fontSize: 11, color: '#cbd5e1' }}>METAR: ${formatTemp(hoverMetar.temp)} · settle ${hoverMetar.settled}F</div>` : null}
+          </div>
+        ` : null}
+      </div>
+    </div>
+  `;
+}
+
+async function fetchEventBySlug(slug) {
+  const direct = await fetch(`/api/gamma/events/slug/${encodeURIComponent(slug)}`);
+  if (direct.ok) return direct.json();
+  const legacy = await fetch(`/api/gamma/events?slug=${encodeURIComponent(slug)}`);
+  if (!legacy.ok) return null;
+  const rows = await legacy.json();
+  return rows[0] ?? null;
+}
+
+async function fetchLastTrades(markets) {
+  if (!markets.length) return new Map();
+  const response = await fetch('/api/clob/last-trades-prices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(markets.map((market) => ({ token_id: market.yesTokenId }))),
+  });
+  if (!response.ok) return new Map();
+  const rows = await response.json();
+  return new Map((Array.isArray(rows) ? rows : []).map((row) => [row.token_id, parseFloat(row.price)]));
+}
+
+async function loadSource(city, source) {
+  const response = await fetch(source.buildUrl(city));
+  if (!response.ok) throw new Error(`${source.label} HTTP ${response.status}`);
+  const json = await response.json();
+  return {
+    rows: parseModelData(json.hourly || {}, city.timezone),
+    daily: parseDailyRows(json.daily || {}),
+  };
+}
+
+async function loadCity(city) {
+  const now = cityNowParts(city.timezone);
+  const dateKey = now.dateKey;
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const monthName = new Intl.DateTimeFormat('en-US', { timeZone: city.timezone, month: 'long' })
+    .format(new Date(Date.UTC(year, month - 1, day, 12)))
+    .toLowerCase();
+  const slug = `${city.slugPrefix}-${monthName}-${day}-${year}`;
+
+  const [sourceSettled, metarRes, event] = await Promise.all([
+    Promise.allSettled(SOURCES.map((source) => loadSource(city, source))),
+    fetch(`/api/metar?station=${city.station}`).catch(() => null),
+    fetchEventBySlug(slug).catch(() => null),
+  ]);
+
+  const rowsBySource = {};
+  const dailyBySource = {};
+  sourceSettled.forEach((result, index) => {
+    const source = SOURCES[index];
+    if (result.status === 'fulfilled') {
+      rowsBySource[source.id] = result.value.rows.map((row) => ({ ...row, dayTitle: dayTitle(row.dateKey) }));
+      dailyBySource[source.id] = result.value.daily;
+    } else {
+      rowsBySource[source.id] = [];
+      dailyBySource[source.id] = [];
+    }
+  });
+
+  const referenceRows = SOURCES.map((source) => rowsBySource[source.id]).find((rows) => rows.length) || [];
+  const avgSeries = buildAverageSeries(referenceRows, rowsBySource);
+  const dayKeys = Array.from(new Set(referenceRows.map((row) => row.dateKey))).slice(0, 3);
+
+  const metarRaw = metarRes && metarRes.ok ? await metarRes.json() : [];
+  const metarRows = parseMetarRows(metarRaw, city);
+  const latestMetar = metarRows[metarRows.length - 1] || null;
+  const metarPeak = metarRows.length ? Math.max(...metarRows.map((row) => row.settled)) : null;
+
+  const marketRows = (event?.markets || [])
+    .map((market) => {
+      const tokenIds = JSON.parse(market.clobTokenIds || '[]');
+      const outcomePrices = JSON.parse(market.outcomePrices || '[]');
+      return {
+        id: market.id,
+        label: market.groupItemTitle,
+        threshold: Number(market.groupItemThreshold),
+        yesTokenId: tokenIds[0],
+        impliedYes: parseFloat(outcomePrices[0]),
+      };
+    })
+    .filter((market) => market.yesTokenId)
+    .sort((a, b) => a.threshold - b.threshold);
+
+  const lastTrades = await fetchLastTrades(marketRows).catch(() => new Map());
+  const markets = marketRows.map((market) => ({
+    ...market,
+    lastTrade: lastTrades.get(market.yesTokenId) ?? market.impliedYes ?? null,
+  }));
+
+  const dailyCards = dayKeys.map((dateKey) => {
+    const peaks = SOURCES.map((source) => ({
+      source,
+      peak: modelPeak((rowsBySource[source.id] || []).filter((row) => row.dateKey === dateKey)),
+    })).filter((item) => item.peak);
+
+    const consensus = buildConsensus(peaks);
+    const avgPeak = modelPeak(avgSeries.filter((row) => row.dateKey === dateKey));
+    const metarNearest = avgPeak && metarRows.length
+      ? findMetarNearest(metarRows, new Date(`${dateKey}T${avgPeak.label}:00`))
+      : null;
+
+    return {
+      dateKey,
+      title: dayTitle(dateKey),
+      peaks,
+      consensus,
+      consensusTone: consensusTone(consensus),
+      avgPeak,
+      metarNearest,
+    };
+  });
+
+  return {
+    ...city,
+    dateKey,
+    title: event?.title || slug,
+    rowsBySource,
+    dailyBySource,
+    avgSeries,
+    metarRows,
+    latestMetar,
+    metarPeak,
+    markets,
+    dailyCards,
+    now,
+  };
+}
+
+function navLink(href, label, active) {
+  return html`
+    <a href=${href} style=${{
+      color: active ? '#93c5fd' : '#4b5563',
+      fontSize: 10,
+      textDecoration: 'none',
+      border: `1px solid ${active ? '#2563eb' : '#1a2030'}`,
+      padding: '4px 10px',
+      borderRadius: 4,
+      background: active ? '#1a2540' : 'transparent',
+    }}>${label}</a>
+  `;
+}
+
+function CitySection({ cityState }) {
+  const [showRealMetar, setShowRealMetar] = useState(true);
+  const [todayMode, setTodayMode] = useState('average');
+
+  const nowParts = cityNowParts(cityState.timezone);
+  const todayAvgSeries = cityState.avgSeries.filter((row) => row.dateKey === nowParts.dateKey);
+  const currentSource = SOURCES.find((source) => source.id === todayMode);
+  const currentSourceRows = currentSource
+    ? (cityState.rowsBySource[currentSource.id] || []).filter((row) => row.dateKey === nowParts.dateKey)
+    : [];
+  const selectedTodayRows = todayMode === 'average' ? todayAvgSeries : (currentSourceRows.length ? currentSourceRows : todayAvgSeries);
+  const selectedTodayLabel = todayMode === 'average' ? 'Average' : (currentSource ? currentSource.label : 'Average');
+  const selectedTodayTrack = todayMode === 'average' ? 'AVERAGE TRACK' : `${selectedTodayLabel.toUpperCase()} TRACK`;
+  const selectedTodayColor = todayMode === 'average' ? '#f97316' : (currentSource ? currentSource.color : '#f97316');
+  const selectedStartIdx = selectedTodayRows.findIndex((row) => row.hour === nowParts.hour);
+  const selectedNowMarker = selectedStartIdx >= 0 ? { index: selectedStartIdx + nowParts.minute / 60, label: nowParts.timeLabel } : null;
+  const nowStartIdx = cityState.avgSeries.findIndex((row) => row.dateKey === nowParts.dateKey && row.hour === nowParts.hour);
+  const nowMarker = nowStartIdx >= 0 ? { index: nowStartIdx + nowParts.minute / 60, label: nowParts.timeLabel } : null;
+
+  return html`
+    <section style=${S.cityWrap}>
+      <div style=${S.header}>
+        <div>
+          <div style=${S.h1}>${cityState.name.toUpperCase()} FORECAST</div>
+        </div>
+        <div style=${S.cityMeta}>
+          <div>${cityState.now.timeLabel} local</div>
+          <div>${cityState.latestMetar ? `METAR ${cityState.latestMetar.label}` : 'No METAR yet'}</div>
+        </div>
+      </div>
+
+      <div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, marginBottom: 14 }}>
+        ${cityState.dailyCards.map((day) => html`
+          <div key=${day.dateKey} style=${S.kpi}>
+            <div style=${S.kpiLabel}>${day.title.toUpperCase()}</div>
+            <div style=${{ ...S.kpiVal, color: '#f97316' }}>${day.avgPeak ? formatTemp(day.avgPeak.temp) : '—'}</div>
+            <div style=${S.kpiSub}>average peak at ${day.avgPeak ? day.avgPeak.label : '—'}</div>
+          </div>
+        `)}
+        <div style=${S.kpi}>
+          <div style=${S.kpiLabel}>LATEST SETTLEMENT</div>
+          <div style=${{ ...S.kpiVal, color: '#60a5fa' }}>${cityState.latestMetar ? `${cityState.latestMetar.settled}F` : '—'}</div>
+          <div style=${S.kpiSub}>${cityState.latestMetar ? `${formatTemp(cityState.latestMetar.temp)} exact METAR` : 'Waiting for METAR'}</div>
+        </div>
+      </div>
+
+      <div style=${{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.55fr) minmax(300px, 1fr)', gap: 8, marginBottom: 14 }}>
+        <div style=${{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style=${S.card}>
+            <div style=${S.cardTitle}>AVERAGE TRACK</div>
+            <${AvgChart} rows=${cityState.avgSeries} nowMarker=${nowMarker} />
           </div>
 
-          <div style=${{ marginTop: 16, ...panel() }}>
-            <div style=${{ display:'flex', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom: 12 }}>
-              <div>
-                <div style=${{ fontSize: 11, color:'#7c8aa1', letterSpacing: 1.2 }}>SELECTED CITY</div>
-                <div style=${{ fontSize: 30, fontWeight: 800, color:'#f8fafc', marginTop: 4 }}>
-                  ${selectedCity.name}, ${selectedCity.state}
-                </div>
-              </div>
-              <div style=${{ textAlign:'right', color:'#8b95a5', fontSize:10 }}>
-                <div>${MODEL.label}</div>
-                <div>${selectedCity.timezone}</div>
+          <div style=${S.card}>
+            <div style=${S.cardTitle}>TODAY TRACK</div>
+            <div style=${{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style=${{ fontSize: 10, color: '#64748b' }}>Today only</div>
+              <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick=${() => setShowRealMetar((v) => !v)} style=${{ ...S.modeBtn, ...(showRealMetar ? S.modeBtnActive : {}) }}>Real METAR</button>
+                <button onClick=${() => setTodayMode('average')} style=${{ ...S.modeBtn, ...(todayMode === 'average' ? S.modeBtnActive : {}) }}>Average</button>
+                ${SOURCES.map((source) => html`
+                  <button
+                    key=${source.id}
+                    onClick=${() => setTodayMode(source.id)}
+                    style=${{
+                      ...S.modeBtn,
+                      ...(todayMode === source.id ? { ...S.modeBtnActive, borderColor: source.color, color: source.color } : {}),
+                    }}
+                  >
+                    ${source.label}
+                  </button>
+                `)}
               </div>
             </div>
-
-            ${selectedData ? html`
-              <div style=${{ display:'grid', gridTemplateColumns:'1.15fr 0.85fr', gap:14, minHeight:500 }}>
-                <div style=${{ ...subPanel(), minHeight:500 }}>
-                  <div style=${{ marginBottom: 10, fontSize: 11, color:'#7c8aa1' }}>24-часовой ход температуры</div>
-                  <${MiniChart} rows=${rows} nowFrac=${nowFrac} />
-                </div>
-                <div style=${{ ...subPanel(), minHeight:500, display:'flex', flexDirection:'column', justifyContent:'space-between' }}>
-                  <div style=${metricRow()}>
-                    <span style=${summaryLabel()}>Сейчас</span>
-                    <span style=${summaryValue('#f8fafc')}>${current?.temp != null ? `${Math.round(current.temp)}°C` : '—'}</span>
-                  </div>
-                  <div style=${metricRow()}>
-                    <span style=${summaryLabel()}>Ветер</span>
-                    <span style=${summaryValue('#dbeafe')}>${current?.wind != null ? `${Math.round(current.wind)} м/с` : '—'}</span>
-                  </div>
-                  <div style=${metricRow()}>
-                    <span style=${summaryLabel()}>Облачность</span>
-                    <span style=${summaryValue('#dbeafe')}>${current?.cloud != null ? `${Math.round(current.cloud)}%` : '—'}</span>
-                  </div>
-                  <div style=${metricRow()}>
-                    <span style=${summaryLabel()}>Осадки</span>
-                    <span style=${summaryValue('#dbeafe')}>${current?.pop != null ? `${Math.round(current.pop)}%` : '—'}</span>
-                  </div>
-                  <div style=${metricRow()}>
-                    <span style=${summaryLabel()}>Текущее время</span>
-                    <span style=${summaryValue('#dbeafe')}>${fmtTime(new Date(), selectedCity.timezone)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div style=${{ marginTop: 16, overflowX:'auto' }}>
-                <table style=${{ width:'100%', borderCollapse:'collapse', fontSize: 11 }}>
-                  <thead>
-                    <tr>
-                      <th style=${th()}>Час</th>
-                      <th style=${th()}>T</th>
-                      <th style=${th()}>Ветер</th>
-                      <th style=${th()}>Обл.</th>
-                      <th style=${th()}>Осадки</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${hourlyTable.map(row => html`
-                      <tr key=${row.label} style=${{ borderBottom:'1px solid #162033' }}>
-                        <td style=${td()}><strong style=${{ color:'#dbeafe' }}>${row.label}</strong></td>
-                        <td style=${td()}>${row.temp != null ? `${Math.round(row.temp)}°C` : '—'}</td>
-                        <td style=${td()}>${row.wind != null ? `${Math.round(row.wind)} м/с` : '—'}</td>
-                        <td style=${td()}>${row.cloud != null ? `${Math.round(row.cloud)}%` : '—'}</td>
-                        <td style=${td()}>${row.pop != null ? `${Math.round(row.pop)}%` : '—'}</td>
-                      </tr>
-                    `)}
-                  </tbody>
-                </table>
-              </div>
-            ` : html`
-              <div style=${{ padding: 24, color:'#7c8aa1', fontSize:12 }}>Данные по выбранному городу ещё загружаются.</div>
-            `}
+            <${TodayOverlayChart}
+              modelRows=${selectedTodayRows}
+              metarRows=${cityState.metarRows}
+              nowMarker=${selectedNowMarker}
+              modelLabel=${selectedTodayLabel}
+              trackLabel=${selectedTodayTrack}
+              modelColor=${selectedTodayColor}
+              showRealMetar=${showRealMetar}
+            />
           </div>
         </div>
-      `;
-    }
 
-    function panel() {
-      return {
-        background: 'rgba(10,15,24,0.82)',
-        border: '1px solid #1c2536',
-        borderRadius: 18,
-        padding: 18,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.24)'
-      };
-    }
+        <div style=${S.card}>
+          <div style=${S.cardTitle}>CONSENSUS · 3 DAYS</div>
+          <div style=${{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            ${cityState.dailyCards.map((day) => html`
+              <div key=${day.dateKey} style=${S.dayConsensusCard}>
+                <div style=${S.dayConsensusHeader}>
+                  <span style=${{ color: '#e2e8f0', fontWeight: 700 }}>${day.title}</span>
+                </div>
+                <div style=${S.consensusBig}>${day.consensus ? `${day.consensus.agreeing.length}/${day.consensus.total}` : '—'}</div>
+                <div style=${{ ...S.consensusPill, borderColor: day.consensusTone ? day.consensusTone.borderColor : '#1a2030', color: day.consensusTone ? day.consensusTone.color : '#94a3b8' }}>
+                  ${day.consensusTone ? day.consensusTone.label : 'No signal'}
+                </div>
+                <div style=${{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  ${day.peaks.map(({ source, peak }) => {
+                    const agrees = day.consensus ? Math.abs(peak.temp - day.consensus.anchor) <= 1 : false;
+                    return html`
+                      <div key=${source.id} style=${S.consensusRow}>
+                        <span style=${{ color: source.color, fontWeight: 700, minWidth: 92, flexShrink: 0 }}>${source.label}</span>
+                        <span style=${{ color: agrees ? '#4ade80' : '#94a3b8', textAlign: 'right' }}>${formatTemp(peak.temp)} at ${peak.label}${agrees ? ' · agree' : ''}</span>
+                      </div>
+                    `;
+                  })}
+                </div>
+                <div style=${{ marginTop: 10, fontSize: 10, color: '#4b5563' }}>
+                  ${day.consensus ? `Spread ${formatTemp(day.consensus.min)} to ${formatTemp(day.consensus.max)}${day.metarNearest ? ` · nearest METAR ${formatIntTemp(day.metarNearest.settled)} at ${day.metarNearest.label}` : ''}` : ''}
+                </div>
+              </div>
+            `)}
+          </div>
+        </div>
+      </div>
 
-    function subPanel() {
-      return {
-        background: 'rgba(11,18,32,0.85)',
-        border: '1px solid #1c2536',
-        borderRadius: 14,
-        padding: 18
-      };
-    }
+      <div style=${S.card}>
+        <div style=${S.cardTitle}>POLYMARKET LADDER</div>
+        <div style=${{ display: 'grid', gap: 6 }}>
+          ${cityState.markets.map((market) => html`
+            <div key=${market.id} style=${S.marketRow}>
+              <span style=${{ color: '#e2e8f0' }}>${market.label}</span>
+              <span style=${{ color: '#60a5fa', textAlign: 'right' }}>${pct(market.impliedYes)}</span>
+              <span style=${{ color: '#94a3b8', textAlign: 'right' }}>${market.lastTrade != null ? pct(market.lastTrade) : '—'}</span>
+            </div>
+          `)}
+          ${!cityState.markets.length ? html`<div style=${{ color: '#64748b', fontSize: 11 }}>No market data.</div>` : null}
+        </div>
+      </div>
 
-    function summaryRow() {
-      return {
-        display:'flex',
-        justifyContent:'space-between',
-        gap:12,
-        alignItems:'center',
-        padding:'9px 0',
-        borderBottom:'1px solid #162033'
-      };
-    }
+      <div style=${{ textAlign: 'center', fontSize: 9, color: '#1e293b', marginTop: 10 }}>
+        ${cityState.title}
+      </div>
+    </section>
+  `;
+}
 
-    function summaryLabel() {
-      return { fontSize: 12, color: SUB };
-    }
+function App() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastFetch, setLastFetch] = useState(null);
+  const [cities, setCities] = useState([]);
 
-    function summaryValue(color) {
-      return { fontSize: 22, color, fontWeight: 700 };
+  const doFetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const settled = await Promise.allSettled(CITIES.map((city) => loadCity(city)));
+      const loaded = settled.map((item, index) => (
+        item.status === 'fulfilled'
+          ? item.value
+          : { ...CITIES[index], error: item.reason?.message || 'Fetch failed' }
+      ));
+      setCities(loaded);
+      setLastFetch(new Date());
+      if (loaded.every((city) => city.error)) {
+        setError('Failed to load USA forecast data');
+      }
+    } catch (e) {
+      setError(e.message || 'Fetch failed');
     }
+    setLoading(false);
+  }, []);
 
-    function metricRow() {
-      return {
-        display:'flex',
-        justifyContent:'space-between',
-        gap:12,
-        alignItems:'center',
-        padding:'14px 0',
-        borderBottom:'1px solid #162033'
-      };
-    }
+  useEffect(() => {
+    doFetch();
+    const id = setInterval(doFetch, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [doFetch]);
 
-    function th() {
-      return { textAlign:'left', color: SUB, fontSize: 10, padding:'8px 4px', borderBottom:'1px solid #162033' };
-    }
+  if (loading && !cities.length) {
+    return html`<div style=${S.wrap}><div style=${S.loading}>Loading USA forecast...</div></div>`;
+  }
 
-    function td() {
-      return { padding:'10px 4px', color:'#9fb0c9', fontSize: 12 };
-    }
+  if (error && !cities.length) {
+    return html`
+      <div style=${S.wrap}>
+        <div style=${S.errBox}>
+          <div style=${{ fontSize: 14, marginBottom: 8 }}>Failed to load USA forecast data</div>
+          <div style=${{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>${error}</div>
+          <button onClick=${doFetch} style=${S.retryBtn}>Retry</button>
+        </div>
+      </div>
+    `;
+  }
 
-    function badge(bg, color) {
-      return {
-        background: bg,
-        color,
-        border: '1px solid #1c2536',
-        borderRadius: 999,
-        padding: '5px 10px',
-        fontSize: 10
-      };
-    }
+  return html`
+    <div style=${S.wrap}>
+      <div style=${{ display: 'flex', gap: 8, marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid #1a2030', flexWrap: 'wrap' }}>
+        ${navLink('/', 'Polydash', false)}
+        ${navLink('/weth/beijing-forecast.html', 'Beijing Forecast', false)}
+        ${navLink('/weth/forecast.html', 'London Forecast', false)}
+        ${navLink('/weth/paris-forecast.html', 'Paris Forecast', false)}
+        ${navLink('/weth/usa-forecast.html', 'USA Forecast', true)}
+      </div>
 
-    function refreshBtn() {
-      return {
-        width: 42,
-        height: 42,
-        borderRadius: 12,
-        border: '1px solid #1c2536',
-        background: 'rgba(11,18,32,0.9)',
-        color: '#dbeafe',
-        cursor: 'pointer',
-        fontSize: 16
-      };
-    }
+      <div style=${S.topHeader}>
+        <div>
+          <div style=${S.h1}>USA FORECAST</div>
+          <div style=${S.sub}>Two-city page rebuilt on the same design and interaction model as the London/Paris forecast pages.</div>
+        </div>
+        <button onClick=${doFetch} style=${S.refreshBtn}>↻</button>
+      </div>
 
-    function errorBox() {
-      return {
-        background: 'rgba(127,29,29,0.16)',
-        border: '1px solid #7f1d1d',
-        borderRadius: 14,
-        padding: 16,
-        color: '#fecaca',
-        marginBottom: 16
-      };
-    }
+      <div style=${{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        ${cities.map((city) => city.error
+          ? html`<div key=${city.id} style=${S.errBox}>${city.name}: ${city.error}</div>`
+          : html`<${CitySection} key=${city.id} cityState=${city} />`)}
+      </div>
 
-    render(html`<${App} />`, document.getElementById('root'));
+      <div style=${{ textAlign: 'center', fontSize: 9, color: '#1e293b', marginTop: 10 }}>
+        ${lastFetch ? `Updated: ${lastFetch.toLocaleTimeString('en-GB')} USA` : ''}
+        ${error ? ` · Last refresh error: ${error}` : ''}
+      </div>
+    </div>
+  `;
+}
+
+const S = {
+  wrap: { fontFamily: "'IBM Plex Mono','Courier New',monospace", background: '#0c1017', color: '#8b95a5', minHeight: '100vh', padding: 16, boxSizing: 'border-box' },
+  topHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 },
+  cityWrap: { background: '#0f141e', border: '1px solid #1a2030', borderRadius: 9, padding: 14 },
+  header: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' },
+  h1: { fontSize: 17, fontWeight: 700, color: '#e8ecf1', letterSpacing: 2 },
+  sub: { fontSize: 10, color: '#3e4a5c', marginTop: 2, maxWidth: 760, lineHeight: 1.5 },
+  cityMeta: { textAlign: 'right', fontSize: 10, color: '#64748b', lineHeight: 1.6 },
+  refreshBtn: { background: '#10141e', border: '1px solid #1a2030', color: '#64748b', width: 36, height: 36, borderRadius: 6, cursor: 'pointer', fontSize: 16, fontFamily: 'inherit' },
+  card: { background: '#10141e', border: '1px solid #1a2030', borderRadius: 7, padding: 14, marginBottom: 12 },
+  cardTitle: { fontSize: 9, fontWeight: 700, color: '#3e4a5c', letterSpacing: 1.5, marginBottom: 10 },
+  kpi: { background: '#10141e', border: '1px solid #1a2030', borderRadius: 7, padding: 10, textAlign: 'center' },
+  kpiLabel: { fontSize: 8, fontWeight: 700, color: '#3e4a5c', letterSpacing: 1, marginBottom: 4 },
+  kpiVal: { fontSize: 22, fontWeight: 700, color: '#e2e8f0' },
+  kpiSub: { fontSize: 9, color: '#4b5563', marginTop: 2 },
+  consensusBig: { fontSize: 32, lineHeight: 1, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 },
+  consensusSub: { fontSize: 10, color: '#94a3b8' },
+  consensusPill: { display: 'inline-block', marginTop: 10, border: '1px solid #1a2030', borderRadius: 999, padding: '5px 10px', fontSize: 10, fontWeight: 700 },
+  dayConsensusCard: { border: '1px solid #16202f', borderRadius: 8, padding: 12, background: '#0c1017' },
+  dayConsensusHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 },
+  consensusRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11 },
+  marketRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 80px 80px', gap: 10, alignItems: 'center', fontSize: 11, padding: '6px 0', borderBottom: '1px solid #16202f' },
+  loading: { padding: 40, textAlign: 'center', color: '#4b5563', fontSize: 13 },
+  errBox: { background: '#10141e', border: '1px solid #5c1a1a', borderRadius: 7, padding: 20, textAlign: 'center', color: '#f87171', marginTop: 12 },
+  retryBtn: { background: '#1a0a0a', border: '1px solid #7f1d1d', color: '#f87171', padding: '8px 16px', borderRadius: 5, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' },
+  modeBtn: { background: '#10141e', border: '1px solid #1a2030', color: '#64748b', padding: '5px 10px', borderRadius: 999, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' },
+  modeBtnActive: { background: '#172033', borderColor: '#2563eb', color: '#93c5fd' },
+};
+
+render(html`<${App} />`, document.getElementById('root'));

@@ -24,7 +24,7 @@ function switchCity(cityId) {
   document.getElementById('mktBody').innerHTML = '';
   document.getElementById('tabToday').classList.add('active');
   document.getElementById('tabTomorrow').classList.remove('active');
-  document.getElementById('tempNow').innerHTML = '\u2014<span class="temp-unit">\u00B0C</span>';
+  document.getElementById('tempNow').innerHTML = `\u2014<span class="temp-unit">${tempUnitLabel()}</span>`;
   document.getElementById('metarRaw').textContent = 'loading...';
   document.getElementById('chartTitle').textContent = `${activeCity.metar} Temperature Today`;
   document.getElementById('cfMin').textContent = '\u2014';

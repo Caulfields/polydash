@@ -1,7 +1,7 @@
 // METAR proxy with per-station in-memory cache (resets on cold start).
 const metarCache = {};
 const stationCoords = {
-  RKSI: { lat: 37.469101, lon: 126.450996 },
+  ZBAA: { lat: 40.0799, lon: 116.6031 },
   EGLC: { lat: 51.5053, lon: 0.0553 },
   LFPB: { lat: 48.949675, lon: 2.432356 },
   LFPG: { lat: 48.949675, lon: 2.432356 },

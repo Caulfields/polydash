@@ -42,6 +42,10 @@ function buildHourlyState(hourly, timezone, sourceLabel) {
   };
 }
 
+function omDisplayTemp(tempC) {
+  return tempFromCelsius(tempC, { decimals: activeTempUnit() === 'F' ? 1 : 1 });
+}
+
 function setOmMode(mode) {
   omMode = mode === 'average' ? 'average' : 'best';
   setOmHeader();
@@ -93,8 +97,9 @@ function drawHourlyOmChart() {
   const chartWidth = width - pad.left - pad.right;
   const chartHeight = height - pad.top - pad.bottom;
   const xOfHr = (hour) => pad.left + (hour / 24) * chartWidth;
-  const yMin0 = Math.min(...rows.map((row) => row.temp));
-  const yMax0 = Math.max(...rows.map((row) => row.temp));
+  const tempsDisplay = rows.map((row) => omDisplayTemp(row.temp));
+  const yMin0 = Math.min(...tempsDisplay);
+  const yMax0 = Math.max(...tempsDisplay);
   const yMin = Math.floor(yMin0 - 1);
   const yMax = Math.ceil(yMax0 + 1);
   const yOf = (value) => pad.top + (1 - (value - yMin) / Math.max(yMax - yMin, 1)) * chartHeight;
@@ -112,7 +117,7 @@ function drawHourlyOmChart() {
     ctx.fillStyle = 'rgba(139,146,169,0.55)';
     ctx.font = '10px Inter,system-ui,sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(`${temp}\u00B0`, pad.left - 4, y + 3.5);
+    ctx.fillText(`${temp}${tempUnitLabel()}`, pad.left - 4, y + 3.5);
   }
 
   ctx.fillStyle = 'rgba(139,146,169,0.6)';
@@ -143,7 +148,7 @@ function drawHourlyOmChart() {
   ctx.beginPath();
   rows.forEach((row, index) => {
     const x = xOfHr(row.hourFrac);
-    const y = yOf(row.temp);
+    const y = yOf(omDisplayTemp(row.temp));
     index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
   });
   ctx.stroke();
@@ -155,7 +160,7 @@ function drawHourlyOmChart() {
   ctx.beginPath();
   rows.forEach((row, index) => {
     const x = xOfHr(row.hourFrac);
-    const y = yOf(row.temp);
+    const y = yOf(omDisplayTemp(row.temp));
     index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
   });
   ctx.lineTo(xOfHr(rows[rows.length - 1].hourFrac), pad.top + chartHeight);
@@ -165,7 +170,7 @@ function drawHourlyOmChart() {
 
   rows.forEach((row) => {
     const x = xOfHr(row.hourFrac);
-    const y = yOf(row.temp);
+    const y = yOf(omDisplayTemp(row.temp));
     ctx.fillStyle = '#f97316';
     ctx.beginPath();
     ctx.arc(x, y, 2.8, 0, Math.PI * 2);
@@ -259,6 +264,7 @@ function drawOmChart() {
 
   const h = omData.minutely_15;
   const temps = h.temperature_2m;
+  const displayTemps = temps.map((temp) => omDisplayTemp(temp));
   const rain = h.precipitation;
   const wSpd = h.wind_speed_10m;
   const wDir = h.wind_direction_10m;
@@ -270,8 +276,8 @@ function drawOmChart() {
   const hourFrac = (index) => parseInt(times[index].substring(11, 13), 10) + parseInt(times[index].substring(14, 16), 10) / 60;
   const xOfHr = (hour) => pad.left + (hour / 24) * chartWidth;
 
-  const tMin0 = Math.min(...temps);
-  const tMax0 = Math.max(...temps);
+  const tMin0 = Math.min(...displayTemps);
+  const tMax0 = Math.max(...displayTemps);
   const tPad = Math.max(1, Math.round((tMax0 - tMin0) * 0.2));
   const tMin = tMin0 - tPad;
   const tMax = tMax0 + tPad;
@@ -293,7 +299,7 @@ function drawOmChart() {
     ctx.fillStyle = 'rgba(139,146,169,0.55)';
     ctx.font = '10px Inter,system-ui,sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(`${temp}\u00B0`, pad.left - 4, y + 3.5);
+    ctx.fillText(`${temp}${tempUnitLabel()}`, pad.left - 4, y + 3.5);
   }
 
   ctx.fillStyle = 'rgba(139,146,169,0.6)';
@@ -327,7 +333,7 @@ function drawOmChart() {
     ctx.beginPath();
     temps.forEach((temp, index) => {
       const x = xOfHr(hourFrac(index));
-      const y = yOfT(temp);
+      const y = yOfT(displayTemps[index]);
       index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
@@ -339,7 +345,7 @@ function drawOmChart() {
     ctx.beginPath();
     temps.forEach((temp, index) => {
       const x = xOfHr(hourFrac(index));
-      const y = yOfT(temp);
+      const y = yOfT(displayTemps[index]);
       index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     const lastX = xOfHr(hourFrac(temps.length - 1));
@@ -423,7 +429,7 @@ setInterval(() => {
         }
       });
       document.getElementById('omTtTime').textContent = `${best.label} ${activeCity.name}`;
-      document.getElementById('omTtTemp').textContent = `${best.temp.toFixed(1)}\u00B0C`;
+      document.getElementById('omTtTemp').textContent = `${omDisplayTemp(best.temp).toFixed(1)}${tempUnitLabel()}`;
       document.getElementById('omTtWind').textContent =
         best.windSpeed != null && best.windDir != null
           ? `${Math.round(best.windSpeed)} km/h ${windDir(best.windDir)} \u00B7 ${geom.selectedLabel}`
@@ -455,7 +461,7 @@ setInterval(() => {
 
     const timeStr = geom.times[bestI];
     document.getElementById('omTtTime').textContent = `${timeStr.substring(11, 13)}:${timeStr.substring(14, 16)}`;
-    document.getElementById('omTtTemp').textContent = `${geom.temps[bestI]}\u00B0C`;
+    document.getElementById('omTtTemp').textContent = `${omDisplayTemp(geom.temps[bestI]).toFixed(1)}${tempUnitLabel()}`;
     document.getElementById('omTtWind').textContent = `${geom.wSpd[bestI]} km/h ${windDir(geom.wDir[bestI])}`;
     document.getElementById('omTtRain').textContent = geom.rain[bestI] > 0 ? `${geom.rain[bestI]} mm` : '';
 

@@ -10,17 +10,32 @@ const FIXED_DATE  = QUERY.get('date');
 const EMBED       = QUERY.get('embed') === '1';
 
 const CITIES = {
-  seoul:  { id:'seoul',  name:'Seoul',  timezone:'Asia/Seoul',   metar:'RKSI',
-    slugPrefix:'highest-temperature-in-seoul-on',  seriesSlug:'seoul-daily-weather', seriesId:'10742' },
+  beijing:{ id:'beijing',name:'Beijing',timezone:'Asia/Shanghai',metar:'ZBAA',
+    slugPrefix:'highest-temperature-in-beijing-on',seriesSlug:'beijing-daily-weather',seriesId:'0' },
   london: { id:'london', name:'London', timezone:'Europe/London', metar:'EGLC',
     slugPrefix:'highest-temperature-in-london-on', seriesSlug:'london-daily-weather', seriesId:'10006' },
   paris:  { id:'paris',  name:'Paris',  timezone:'Europe/Paris',  metar:'LFPB',
     slugPrefix:'highest-temperature-in-paris-on',  seriesSlug:'paris-daily-weather',  seriesId:'11168' },
+  nyc:    { id:'nyc',    name:'New York', timezone:'America/New_York', metar:'KLGA',
+    slugPrefix:'highest-temperature-in-nyc-on',    seriesSlug:'nyc-daily-weather',    seriesId:'0', usesUsMetarTenths:true },
+  dallas: { id:'dallas', name:'Dallas', timezone:'America/Chicago',    metar:'KDAL',
+    slugPrefix:'highest-temperature-in-dallas-on', seriesSlug:'dallas-daily-weather', seriesId:'0', usesUsMetarTenths:true },
 };
 
 // Fixed colors by threshold value (same temp → same color across all days)
 const PALETTE = ['#22c55e','#6366f1','#ef4444','#f59e0b','#ec4899','#06b6d4','#f97316','#a855f7','#84cc16','#14b8a6','#fb923c','#e879f9'];
 const _threshColors = {}; // cityId → Map(threshold → color)
+function tempUnit() { return city.usesUsMetarTenths ? 'F' : 'C'; }
+function tempUnitLabel() { return `°${tempUnit()}`; }
+function tempFromCelsius(tempC) {
+  if (!Number.isFinite(tempC)) return null;
+  if (tempUnit() === 'F') return Math.round((tempC * 9) / 5 + 32);
+  return tempC;
+}
+function formatTempFromCelsius(tempC) {
+  const value = tempFromCelsius(tempC);
+  return value == null ? '—' : `${value}${tempUnitLabel()}`;
+}
 function thresholdColor(cityId, threshold) {
   if (!_threshColors[cityId]) _threshColors[cityId] = new Map();
   const map = _threshColors[cityId];
@@ -33,7 +48,7 @@ function thresholdColor(cityId, threshold) {
 const PAD = { top: 16, right: 16, bottom: 36, left: 44 }; // day view
 const PAD_RIGHT_METAR = 48;
 // ── State ─────────────────────────────────────────────────────────────────────
-let city         = CITIES[FIXED_CITY] || CITIES.seoul;
+let city         = CITIES[FIXED_CITY] || CITIES.beijing;
 let selDate      = '';
 let markets      = [];
 let dayStart     = 0, dayEnd = 0;
@@ -131,7 +146,7 @@ function renderLegend() {
     metarHtml = `<div class="leg-item${!metarVisible?' dim':''}" onclick="toggleMetar()">
       <div class="leg-dot" style="background:${METAR_COLOR};border-radius:3px;"></div>
       <span class="leg-label">METAR</span>
-      <span class="leg-price" style="color:${METAR_COLOR}">${last.temp!=null?last.temp+'°C':'—'}</span>
+      <span class="leg-price" style="color:${METAR_COLOR}">${formatTempFromCelsius(last.temp)}</span>
     </div>`;
   }
   el.innerHTML = mktHtml + metarHtml;
@@ -215,10 +230,23 @@ async function fetchCurrentPrices() {
 }
 
 // ── METAR ─────────────────────────────────────────────────────────────────────
+function parseUsMetarTenths(rawOb) {
+  if (!rawOb) return null;
+  const match = rawOb.match(/\bT([01])(\d{3})([01])(\d{3})\b/);
+  if (!match) return null;
+  const parseSignedTenths = (sign, digits) => (sign === '1' ? -1 : 1) * (parseInt(digits, 10) / 10);
+  return {
+    tempC: parseSignedTenths(match[1], match[2]),
+    dewpC: parseSignedTenths(match[3], match[4]),
+  };
+}
+
 function parseMetarObs(obs) {
-  const t = typeof obs.obsTime === 'number' ? obs.obsTime
-    : Math.floor(new Date(obs.obsTime.includes('T') ? obs.obsTime : obs.obsTime + 'Z').getTime() / 1000);
-  return { t, temp: obs.temp ?? null };
+  const timeValue = obs.obsTime || obs.reportTime;
+  const t = typeof timeValue === 'number' ? timeValue
+    : Math.floor(new Date(String(timeValue).includes('T') ? timeValue : timeValue + 'Z').getTime() / 1000);
+  const precise = city.usesUsMetarTenths ? parseUsMetarTenths(obs.rawOb) : null;
+  return { t, temp: precise?.tempC ?? obs.temp ?? null };
 }
 
 async function fetchMetar() {
@@ -244,7 +272,7 @@ async function fetchMetar() {
 }
 
 function metarTRange() {
-  const temps=metarPts.map(p=>p.temp);
+  const temps=metarPts.map(p=>tempFromCelsius(p.temp)).filter(t => t != null);
   const lo=Math.floor(Math.min(...temps))-1, hi=Math.ceil(Math.max(...temps))+1;
   return{lo,hi,range:hi-lo||1};
 }
@@ -330,14 +358,14 @@ function drawDayChart() {
     ctx.fillStyle=METAR_COLOR;ctx.font='10px Inter,system-ui,sans-serif';
     ctx.textAlign='left';ctx.textBaseline='middle';
     const step=(hi-lo)<=6?1:2;
-    for(let t=lo;t<=hi;t+=step)ctx.fillText(t+'°',PAD.left+cW+6,tToY(t));
+    for(let t=lo;t<=hi;t+=step)ctx.fillText(`${t}${tempUnitLabel()}`,PAD.left+cW+6,tToY(t));
     ctx.fillStyle='rgba(56,189,248,0.5)';ctx.font='9px Inter,system-ui,sans-serif';
-    ctx.textBaseline='bottom';ctx.fillText('°C',PAD.left+cW+6,PAD.top+cH+32);
+    ctx.textBaseline='bottom';ctx.fillText(tempUnitLabel(),PAD.left+cW+6,PAD.top+cH+32);
     ctx.strokeStyle='rgba(56,189,248,0.15)';ctx.lineWidth=1;ctx.setLineDash([]);
     ctx.beginPath();ctx.moveTo(PAD.left+cW,PAD.top);ctx.lineTo(PAD.left+cW,PAD.top+cH);ctx.stroke();
     ctx.strokeStyle=METAR_COLOR;ctx.lineWidth=2;ctx.lineJoin='round';ctx.setLineDash([6,3]);ctx.globalAlpha=0.9;
     ctx.beginPath();
-    metarPts.forEach((pt,i)=>{const x=tToX(pt.t),y=tToY(pt.temp);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
+    metarPts.forEach((pt,i)=>{const x=tToX(pt.t),y=tToY(tempFromCelsius(pt.temp));if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
     ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
   }
 }
@@ -396,11 +424,11 @@ function onMouseMove(e) {
     let best=metarPts[0],bestD=Infinity;
     metarPts.forEach(pt=>{const d=Math.abs(pt.t-hoverTs);if(d<bestD){bestD=d;best=pt;}});
     const px=PAD.left+((best.t-dayStart)/86400)*cW;
-    const py=PAD.top+(1-(best.temp-lo)/range)*cH;
+    const py=PAD.top+(1-(tempFromCelsius(best.temp)-lo)/range)*cH;
     overlayCtx.beginPath();overlayCtx.arc(px,py,4,0,Math.PI*2);
     overlayCtx.fillStyle=METAR_COLOR;overlayCtx.fill();
     overlayCtx.strokeStyle='rgba(255,255,255,0.8)';overlayCtx.lineWidth=1.5;overlayCtx.stroke();
-    rows.push({color:METAR_COLOR,label:'Temp',value:best.temp+'°C',ts:best.t});
+    rows.push({color:METAR_COLOR,label:'Temp',value:formatTempFromCelsius(best.temp),ts:best.t});
   }
 
   if(!rows.length){document.getElementById('tooltip').style.display='none';return;}

@@ -1,5 +1,5 @@
     function todayIso() {
-      return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+      return new Date().toLocaleDateString('en-CA', { timeZone: 'UTC' });
     }
 
     function shiftIso(iso, days) {
@@ -15,10 +15,12 @@
     function loadFrames() {
       const picker = document.getElementById('datePicker');
       const iso = picker.value || todayIso();
-      document.getElementById('frame-seoul').src = buildSrc('seoul', iso);
+      document.getElementById('frame-beijing').src = buildSrc('beijing', iso);
       document.getElementById('frame-london').src = buildSrc('london', iso);
       document.getElementById('frame-paris').src = buildSrc('paris', iso);
-      document.getElementById('statusBar').textContent = `Loaded ${iso} for Seoul, London, and Paris.`;
+      document.getElementById('frame-nyc').src = buildSrc('nyc', iso);
+      document.getElementById('frame-dallas').src = buildSrc('dallas', iso);
+      document.getElementById('statusBar').textContent = `Loaded ${iso} for Beijing, London, Paris, New York, and Dallas.`;
     }
 
     function init() {

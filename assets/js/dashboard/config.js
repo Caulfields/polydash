@@ -5,20 +5,20 @@ const CLOB_REFRESH_MS = 15000;
 const METAR_REFRESH_MS = 120000;
 
 const CITIES = {
-  seoul: {
-    id: 'seoul',
-    name: 'Seoul',
-    metar: 'RKSI',
-    airport: 'Incheon International Airport',
-    timezone: 'Asia/Seoul',
-    seriesSlug: 'seoul-daily-weather',
-    slugPrefix: 'highest-temperature-in-seoul-on',
-    archiveKey: 'polydash_archive_seoul',
-    coords: { lat: 37.469101, lon: 126.450996 },
+  beijing: {
+    id: 'beijing',
+    name: 'Beijing',
+    metar: 'ZBAA',
+    airport: 'Beijing Capital International Airport',
+    timezone: 'Asia/Shanghai',
+    seriesSlug: 'beijing-daily-weather',
+    slugPrefix: 'highest-temperature-in-beijing-on',
+    archiveKey: 'polydash_archive_beijing',
+    coords: { lat: 40.0799, lon: 116.6031 },
     omKind: 'hourly',
-    omBadge: 'JMA',
-    omSourceLabel: 'JMA Seamless',
-    omApi: 'https://api.open-meteo.com/v1/forecast?latitude=37.469101&longitude=126.450996&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,precipitation_probability&models=jma_seamless&timezone=Asia%2FSeoul&forecast_days=1',
+    omBadge: 'CMA',
+    omSourceLabel: 'Open-Meteo Forecast',
+    omApi: 'https://api.open-meteo.com/v1/forecast?latitude=40.0799&longitude=116.6031&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,precipitation_probability&timezone=Asia%2FShanghai&forecast_days=1',
   },
   london: {
     id: 'london',
@@ -50,9 +50,43 @@ const CITIES = {
     omSourceLabel: 'Meteo-France',
     omApi: 'https://api.open-meteo.com/v1/forecast?latitude=48.949675&longitude=2.432356&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,precipitation_probability&models=meteofrance_seamless&timezone=Europe%2FParis&forecast_days=1',
   },
+  nyc: {
+    id: 'nyc',
+    name: 'New York',
+    metar: 'KLGA',
+    airport: 'LaGuardia Airport',
+    timezone: 'America/New_York',
+    seriesSlug: 'nyc-daily-weather',
+    slugPrefix: 'highest-temperature-in-nyc-on',
+    archiveKey: 'polydash_archive_nyc',
+    coords: { lat: 40.774722, lon: -73.871944 },
+    marketUnit: 'F',
+    usesUsMetarTenths: true,
+    omKind: 'hourly',
+    omBadge: 'NOAA',
+    omSourceLabel: 'GFS / HRRR Seamless',
+    omApi: 'https://api.open-meteo.com/v1/gfs?latitude=40.774722&longitude=-73.871944&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,precipitation_probability&timezone=America%2FNew_York&forecast_days=1',
+  },
+  dallas: {
+    id: 'dallas',
+    name: 'Dallas',
+    metar: 'KDAL',
+    airport: 'Dallas Love Field',
+    timezone: 'America/Chicago',
+    seriesSlug: 'dallas-daily-weather',
+    slugPrefix: 'highest-temperature-in-dallas-on',
+    archiveKey: 'polydash_archive_dallas',
+    coords: { lat: 32.847222, lon: -96.851667 },
+    marketUnit: 'F',
+    usesUsMetarTenths: true,
+    omKind: 'hourly',
+    omBadge: 'NOAA',
+    omSourceLabel: 'GFS / HRRR Seamless',
+    omApi: 'https://api.open-meteo.com/v1/gfs?latitude=32.847222&longitude=-96.851667&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,precipitation_probability&timezone=America%2FChicago&forecast_days=1',
+  },
 };
 
-let activeCity = CITIES.seoul;
+let activeCity = CITIES.beijing;
 
 function cityDateParts(offsetDays = 0) {
   const now = new Date(Date.now() + offsetDays * 86400000);

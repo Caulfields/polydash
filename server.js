@@ -53,11 +53,13 @@ app.use('/api/data', createProxyMiddleware({
 const metarCache = {};
 
 const stationCoords = {
-  'RKSI': { lat: 37.469101, lon: 126.450996 }, // Incheon International
+  'ZBAA': { lat: 40.0799, lon: 116.6031 }, // Beijing Capital International
   'EGLC': { lat: 51.505, lon: 0.055 },   // London City
   'LFPG': { lat: 48.949675, lon: 2.432356 }, // Legacy Paris code fallback
   'EGLL': { lat: 51.4700, lon: -0.4543 }, // London Heathrow
   'LFPB': { lat: 48.949675, lon: 2.432356 },  // Paris Le Bourget
+  'KLGA': { lat: 40.774722, lon: -73.871944 }, // LaGuardia
+  'KDAL': { lat: 32.847222, lon: -96.851667 }, // Dallas Love Field
 };
 
 function fetchOpenMeteo(station, hours) {

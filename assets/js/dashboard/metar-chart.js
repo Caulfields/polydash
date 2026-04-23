@@ -7,6 +7,29 @@ function cityDateStr(date) {
   }).format(date);
 }
 
+function parseUsMetarTenths(rawOb) {
+  if (!rawOb) return null;
+  const match = rawOb.match(/\bT([01])(\d{3})([01])(\d{3})\b/);
+  if (!match) return null;
+  const parseSignedTenths = (sign, digits) => (sign === '1' ? -1 : 1) * (parseInt(digits, 10) / 10);
+  return {
+    tempC: parseSignedTenths(match[1], match[2]),
+    dewpC: parseSignedTenths(match[3], match[4]),
+  };
+}
+
+function marketTempFromC(tempC) {
+  if (!Number.isFinite(tempC)) return null;
+  if (activeCity.marketUnit === 'F') return Math.round((tempC * 9) / 5 + 32);
+  return tempC;
+}
+
+function marketThresholdToCelsius(value) {
+  if (!Number.isFinite(value)) return null;
+  if (activeCity.marketUnit === 'F') return ((value - 32) * 5) / 9;
+  return value;
+}
+
 async function loadMetar() {
   try {
     const res = await fetch(`/api/metar?station=${activeCity.metar}`);
@@ -15,15 +38,18 @@ async function loadMetar() {
 
     const obs = raw
       .filter((row) => row.temp != null)
-      .map((row) => ({
-        time: new Date(row.reportTime),
-        temp: row.temp,
-        dewp: row.dewp,
-        wspd: row.wspd,
-        wdir: row.wdir,
-        rawOb: row.rawOb,
-        weather: parseMetarWeather(row.rawOb),
-      }))
+      .map((row) => {
+        const precise = activeCity.usesUsMetarTenths ? parseUsMetarTenths(row.rawOb) : null;
+        return {
+          time: new Date(row.reportTime || row.obsTime),
+          temp: precise?.tempC ?? row.temp,
+          dewp: precise?.dewpC ?? row.dewp,
+          wspd: row.wspd,
+          wdir: row.wdir,
+          rawOb: row.rawOb,
+          weather: parseMetarWeather(row.rawOb),
+        };
+      })
       .sort((a, b) => a.time - b.time);
 
     const todayStr = cityDateStr(new Date());
@@ -114,7 +140,7 @@ function updateMetarUI() {
   if (!metarToday.length) return;
   const latest = metarToday[metarToday.length - 1];
 
-  document.getElementById('tempNow').innerHTML = `${latest.temp}<span class="temp-unit">\u00B0C</span>`;
+  document.getElementById('tempNow').innerHTML = `${tempFromCelsius(latest.temp, { settle: activeTempUnit() === 'F' })}<span class="temp-unit">${tempUnitLabel()}</span>`;
   document.getElementById('metarRaw').textContent = latest.rawOb;
   document.getElementById('cfWeather').textContent = parseMetarWeather(latest.rawOb);
   document.getElementById('cfWind').textContent =
@@ -122,8 +148,8 @@ function updateMetarUI() {
     (latest.wspd != null ? ` ${latest.wspd}kt` : '');
 
   const temps = metarToday.map((item) => item.temp);
-  document.getElementById('cfMin').textContent = `${Math.min(...temps)}\u00B0C`;
-  document.getElementById('cfMax').textContent = `${Math.max(...temps)}\u00B0C`;
+  document.getElementById('cfMin').textContent = formatTempFromCelsius(Math.min(...temps), { settle: activeTempUnit() === 'F' });
+  document.getElementById('cfMax').textContent = formatTempFromCelsius(Math.max(...temps), { settle: activeTempUnit() === 'F' });
 }
 
 function cityTimeParts(date) {
@@ -171,7 +197,9 @@ function drawChart() {
   const chartHeight = height - pad.top - pad.bottom;
   const xOfHr = (hour) => pad.left + (hour / 24) * chartWidth;
 
-  const allTemps = [...metarToday.map((item) => item.temp), ...metarYesterday.map((item) => item.temp)];
+  const displayToday = metarToday.map((item) => tempFromCelsius(item.temp, { settle: activeTempUnit() === 'F' }));
+  const displayYesterday = metarYesterday.map((item) => tempFromCelsius(item.temp, { settle: activeTempUnit() === 'F' }));
+  const allTemps = [...displayToday, ...displayYesterday].filter((value) => value != null);
   const rawMin = Math.min(...allTemps);
   const rawMax = Math.max(...allTemps);
   const yPad = Math.max(1, Math.round((rawMax - rawMin) * 0.15));
@@ -191,7 +219,7 @@ function drawChart() {
     ctx.fillStyle = 'rgba(139,146,169,0.55)';
     ctx.font = '10px Inter,system-ui,sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(`${temp}\u00B0`, pad.left - 4, y + 3.5);
+    ctx.fillText(`${temp}${tempUnitLabel()}`, pad.left - 4, y + 3.5);
   }
 
   ctx.fillStyle = 'rgba(139,146,169,0.6)';
@@ -208,12 +236,14 @@ function drawChart() {
   }
 
   if (metarToday.length) {
-    const curTemp = metarToday[metarToday.length - 1].temp;
-    const active = THRESH_TEMPS.filter((temp) => temp <= curTemp).pop() ?? THRESH_TEMPS[0];
-    const label = active === 12 ? '\u226412\u00B0C' : active === 22 ? '\u226522\u00B0C' : `${active}\u00B0C`;
-    const y = yOf(active);
+    const curTemp = marketTempFromC(metarToday[metarToday.length - 1].temp);
+    const sortedMarkets = [...getMarkets()].sort((a, b) => a.threshold - b.threshold);
+    const activeMarket = sortedMarkets.filter((market) => market.threshold <= curTemp).pop() ?? sortedMarkets[0];
+    const thresholdValue = activeMarket ? activeMarket.threshold : null;
+    const label = activeMarket ? activeMarket.label : '';
+    const y = thresholdValue != null ? yOf(thresholdValue) : null;
     const nowX = xOfHr(toHourFrac(metarToday[metarToday.length - 1].time));
-    if (y >= pad.top && y <= pad.top + chartHeight) {
+    if (y != null && y >= pad.top && y <= pad.top + chartHeight) {
       ctx.save();
       ctx.setLineDash([5, 4]);
       ctx.strokeStyle = 'rgba(255,255,255,0.2)';
@@ -238,7 +268,7 @@ function drawChart() {
     ctx.beginPath();
     metarYesterday.forEach((item, index) => {
       const x = xOfHr(toHourFrac(item.time));
-      const y = yOf(item.temp);
+      const y = yOf(tempFromCelsius(item.temp, { settle: activeTempUnit() === 'F' }));
       index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
@@ -248,7 +278,7 @@ function drawChart() {
     ctx.fillStyle = 'rgba(139,146,169,0.5)';
     ctx.font = '9px Inter,system-ui,sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('yday', xOfHr(toHourFrac(last.time)) + 3, yOf(last.temp) + 3);
+    ctx.fillText('yday', xOfHr(toHourFrac(last.time)) + 3, yOf(tempFromCelsius(last.temp, { settle: activeTempUnit() === 'F' })) + 3);
   }
 
   if (metarToday.length >= 1) {
@@ -260,7 +290,7 @@ function drawChart() {
     ctx.beginPath();
     metarToday.forEach((item, index) => {
       const x = xOfHr(toHourFrac(item.time));
-      const y = yOf(item.temp);
+      const y = yOf(tempFromCelsius(item.temp, { settle: activeTempUnit() === 'F' }));
       index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     const lastX = xOfHr(toHourFrac(metarToday[metarToday.length - 1].time));
@@ -277,7 +307,7 @@ function drawChart() {
     ctx.lineJoin = 'round';
     metarToday.forEach((item, index) => {
       const x = xOfHr(toHourFrac(item.time));
-      const y = yOf(item.temp);
+      const y = yOf(tempFromCelsius(item.temp, { settle: activeTempUnit() === 'F' }));
       index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
@@ -286,7 +316,7 @@ function drawChart() {
       const minutes = item.time.getMinutes();
       if (minutes !== 0 && minutes !== 30) continue;
       const x = xOfHr(toHourFrac(item.time));
-      const y = yOf(item.temp);
+      const y = yOf(tempFromCelsius(item.temp, { settle: activeTempUnit() === 'F' }));
       ctx.beginPath();
       ctx.arc(x, y, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = '#f97316';
@@ -295,11 +325,12 @@ function drawChart() {
 
     const latest = metarToday[metarToday.length - 1];
     const latestX = xOfHr(toHourFrac(latest.time));
-    const latestY = yOf(latest.temp);
+    const latestDisplay = tempFromCelsius(latest.temp, { settle: activeTempUnit() === 'F' });
+    const latestY = yOf(latestDisplay);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 11px Inter,system-ui,sans-serif';
     ctx.textAlign = latestX > width - pad.right - 40 ? 'right' : 'left';
-    ctx.fillText(`${latest.temp}\u00B0C`, latestX + (ctx.textAlign === 'left' ? 6 : -6), latestY - 6);
+    ctx.fillText(`${latestDisplay}${tempUnitLabel()}`, latestX + (ctx.textAlign === 'left' ? 6 : -6), latestY - 6);
   }
 
   const overlay = document.getElementById('tempChartOverlay');
@@ -370,7 +401,7 @@ function setupChartMouse() {
     }
 
     const snapX = xOfHr(toHourFrac(nearestToday.time));
-    const snapY = yOf(nearestToday.temp);
+    const snapY = yOf(tempFromCelsius(nearestToday.temp, { settle: activeTempUnit() === 'F' }));
 
     ctx.save();
     ctx.scale(dpr, dpr);
@@ -392,7 +423,7 @@ function setupChartMouse() {
     ctx.stroke();
 
     if (nearestYday && minDistY < 0.6) {
-      const ydayY = yOf(nearestYday.temp);
+      const ydayY = yOf(tempFromCelsius(nearestYday.temp, { settle: activeTempUnit() === 'F' }));
       ctx.beginPath();
       ctx.arc(snapX, ydayY, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(139,146,169,0.6)';
@@ -403,7 +434,7 @@ function setupChartMouse() {
 
     const timeParts = cityTimeParts(nearestToday.time);
     document.getElementById('ttTime').textContent = `${timeParts.hour}:${timeParts.minute} ${activeCity.name.slice(0, 3).toUpperCase()}`;
-    document.getElementById('ttTemp').textContent = `${nearestToday.temp}\u00B0C`;
+    document.getElementById('ttTemp').textContent = formatTempFromCelsius(nearestToday.temp, { settle: activeTempUnit() === 'F' });
     document.getElementById('ttWx').textContent = nearestToday.weather || '';
 
     const tipW = 100;

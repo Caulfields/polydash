@@ -409,7 +409,6 @@
       return html`
         <div>
           <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 10, color: '#64748b', flexWrap: 'wrap' }}>
-            <div>Drag to pan · wheel to zoom · double click to reset</div>
             <button type="button" onClick=${resetZoom} style=${{ ...S.modeBtn, padding: '4px 10px' }}>Reset zoom</button>
           </div>
           <div
@@ -678,7 +677,7 @@
         <div style=${S.wrap}>
           <div style=${{ display: 'flex', gap: 8, marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid #1a2030', flexWrap: 'wrap' }}>
             ${navLink('/', 'Polydash', false)}
-            ${navLink('/weth/seoul-forecast.html', 'Seoul Forecast', false)}
+            ${navLink('/weth/beijing-forecast.html', 'Beijing Forecast', false)}
             ${navLink('/weth/forecast.html', 'London Forecast', true)}
             ${navLink('/weth/paris-forecast.html', 'Paris Forecast', false)}
             ${navLink('/weth/usa-forecast.html', 'USA Forecast', false)}
@@ -687,12 +686,7 @@
           <div style=${S.header}>
             <div>
               <div style=${S.h1}>LONDON FORECAST</div>
-              <div style=${S.sub}>EGLC / London City · ${LAT.toFixed(4)}, ${LON.toFixed(4)}</div>
-              <div style=${{ ...S.sub, marginTop: 6, maxWidth: 'none' }}>
-                UKV 2km · ECMWF IFS · ICON-EU
-              </div>
               <div style=${{ ...S.sub, marginTop: 6 }}>
-                Average and consensus now use only the three remaining London models.
               </div>
             </div>
             <button onClick=${doFetch} style=${S.refreshBtn}>↻</button>
@@ -712,7 +706,6 @@
             <div style=${{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style=${S.card}>
                 <div style=${S.cardTitle}>AVERAGE TRACK</div>
-                <div style=${{ fontSize: 10, color: '#64748b', marginBottom: 10 }}>3 days · mean of ${MODELS.length} London-capable models</div>
                 <${AvgChart} rows=${avgSeries} nowMarker=${nowMarker} />
               </div>
 
@@ -770,7 +763,6 @@
                       <span style=${{ color: '#e2e8f0', fontWeight: 700 }}>${day.title}</span>
                     </div>
                     <div style=${S.consensusBig}>${day.consensus ? `${day.consensus.agreeing.length}/${day.consensus.total}` : '—'}</div>
-                    <div style=${S.consensusSub}>${day.consensus ? `models within ±1°C of median max ${day.consensus.anchor}°C` : 'No model data'}</div>
                     <div style=${{ ...S.consensusPill, borderColor: day.consensusTone ? day.consensusTone.borderColor : '#1a2030', color: day.consensusTone ? day.consensusTone.color : '#94a3b8' }}>
                       ${day.consensusTone ? day.consensusTone.label : 'No signal'}
                     </div>
