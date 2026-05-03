@@ -56,10 +56,95 @@ let isToday      = false;
 let ws           = null;
 let chartCtx     = null, overlayCtx = null;
 let metarVisible = false, metarPts = [];
+let viewStart    = 0, viewEnd = 0;
+let panState     = null;
+const MIN_ZOOM_SPAN = 15 * 60;
 // Historic METAR archive loaded from local JSON files (key: station → [{t,temp}])
 const historicMetar = {};
 
 function rPad() { return metarVisible && metarPts.length ? PAD_RIGHT_METAR : PAD.right; }
+function maxViewEnd() { return dayEnd ? dayEnd + 7200 : 0; }
+function viewSpan() { return Math.max(viewEnd - viewStart, MIN_ZOOM_SPAN); }
+function isZoomed() { return dayStart && (viewStart !== dayStart || viewEnd !== maxViewEnd()); }
+
+function updateZoomButtons() {
+  const resetBtn = document.getElementById('zoomResetBtn');
+  if (!resetBtn) return;
+  const fullSpan = maxViewEnd() - dayStart;
+  const span = viewSpan();
+  const zoomed = isZoomed();
+  resetBtn.disabled = !zoomed;
+  resetBtn.textContent = zoomed && span > 0 ? `${Math.max(1, fullSpan / span).toFixed(1)}x` : '1x';
+}
+
+function setViewRange(start, end, redraw = true) {
+  if (!dayStart || !dayEnd) return;
+  const minStart = dayStart;
+  const maxEnd = maxViewEnd();
+  const maxSpan = maxEnd - minStart;
+  const nextSpan = Math.max(MIN_ZOOM_SPAN, Math.min(end - start, maxSpan));
+  let nextStart = start;
+  let nextEnd = start + nextSpan;
+
+  if (nextStart < minStart) {
+    nextStart = minStart;
+    nextEnd = nextStart + nextSpan;
+  }
+  if (nextEnd > maxEnd) {
+    nextEnd = maxEnd;
+    nextStart = nextEnd - nextSpan;
+  }
+
+  viewStart = Math.round(nextStart);
+  viewEnd = Math.round(nextEnd);
+  updateZoomButtons();
+  if (redraw) drawDayChart();
+}
+
+function resetZoom(redraw = true) {
+  if (!dayStart || !dayEnd) return;
+  viewStart = dayStart;
+  viewEnd = maxViewEnd();
+  updateZoomButtons();
+  if (redraw) drawDayChart();
+}
+
+function zoomChart(factor, anchorTs = viewStart + viewSpan() / 2) {
+  if (!dayStart || !dayEnd) return;
+  const span = viewSpan();
+  const nextSpan = span * factor;
+  const anchorRatio = (anchorTs - viewStart) / span;
+  setViewRange(anchorTs - nextSpan * anchorRatio, anchorTs + nextSpan * (1 - anchorRatio));
+}
+
+function xOfTs(ts, cW) {
+  return PAD.left + ((ts - viewStart) / viewSpan()) * cW;
+}
+
+function tsOfX(x, cW) {
+  return viewStart + ((x - PAD.left) / cW) * viewSpan();
+}
+
+function formatAxisTime(ts) {
+  const d = new Date(ts * 1000);
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  if (viewSpan() <= 6 * 3600) return `${hh}:${mm}`;
+  if (ts < dayStart || ts > dayEnd) {
+    const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+    return `${month} ${d.getUTCDate()}`;
+  }
+  return `${hh}:00`;
+}
+
+function timeTicks() {
+  const span = viewSpan();
+  const steps = [15 * 60, 30 * 60, 60 * 60, 2 * 3600, 4 * 3600, 6 * 3600, 12 * 3600, 24 * 3600];
+  const step = steps.find(s => span / s <= 8) || steps[steps.length - 1];
+  const ticks = [];
+  for (let ts = Math.ceil(viewStart / step) * step; ts <= viewEnd; ts += step) ticks.push(ts);
+  return ticks;
+}
 
 // ── Date utils ────────────────────────────────────────────────────────────────
 function todayIso(c = city)     { return new Date().toLocaleDateString('en-CA', { timeZone: c.timezone }); }
@@ -165,6 +250,7 @@ async function loadDay(iso) {
 
     const {startTs,endTs} = getDayBounds(iso);
     dayStart=startTs; dayEnd=endTs;
+    resetZoom(false);
 
     const raw = event.markets.map(m=>{
       const tids=JSON.parse(m.clobTokenIds);
@@ -321,21 +407,21 @@ function drawDayChart() {
 
   ctx.strokeStyle='#252836';ctx.lineWidth=1;ctx.setLineDash([]);
   for(let p=0;p<=100;p+=10){const y=PAD.top+(1-p/100)*cH;ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();}
-  for(let h=0;h<=24;h+=4){const x=PAD.left+(h/24)*cW;ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();}
+  timeTicks().forEach(ts=>{const x=xOfTs(ts,cW);ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();});
 
   ctx.fillStyle='#8b92a9';ctx.font='10px Inter,system-ui,sans-serif';
   ctx.textAlign='right';ctx.textBaseline='middle';
   for(let p=0;p<=100;p+=20)ctx.fillText(p+'%',PAD.left-6,PAD.top+(1-p/100)*cH);
   ctx.textAlign='center';ctx.textBaseline='top';
-  for(let h=0;h<=24;h+=4)ctx.fillText(String(h).padStart(2,'0')+':00',PAD.left+(h/24)*cW,PAD.top+cH+8);
+  timeTicks().forEach(ts=>ctx.fillText(formatAxisTime(ts),xOfTs(ts,cW),PAD.top+cH+8));
   ctx.fillStyle='#4a5068';ctx.textAlign='right';ctx.textBaseline='bottom';
   ctx.fillText('UTC',PAD.left-6,PAD.top+cH+32);
 
   if(!markets.length||!dayStart)return;
 
   visibleMarkets().forEach(m=>{
-    const pts=m.history.filter(pt=>pt.t>=dayStart&&pt.t<=dayEnd+7200)
-      .map(pt=>({x:PAD.left+((pt.t-dayStart)/86400)*cW,y:PAD.top+(1-Math.max(0,Math.min(1,pt.p)))*cH}));
+    const pts=m.history.filter(pt=>pt.t>=viewStart&&pt.t<=viewEnd)
+      .map(pt=>({x:xOfTs(pt.t,cW),y:PAD.top+(1-Math.max(0,Math.min(1,pt.p)))*cH}));
     if(!pts.length)return;
     ctx.strokeStyle=m.color;ctx.lineWidth=2;ctx.lineJoin='round';ctx.setLineDash([]);ctx.globalAlpha=0.85;
     ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);
@@ -343,9 +429,9 @@ function drawDayChart() {
   });
 
   if(isToday){
-    const frac=(Math.floor(Date.now()/1000)-dayStart)/86400;
-    if(frac>0&&frac<1){
-      const x=PAD.left+frac*cW;
+    const nowTs=Math.floor(Date.now()/1000);
+    if(nowTs>=viewStart&&nowTs<=viewEnd){
+      const x=xOfTs(nowTs,cW);
       ctx.strokeStyle='rgba(255,255,255,0.12)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
       ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();ctx.setLineDash([]);
     }
@@ -354,7 +440,7 @@ function drawDayChart() {
   if(metarVisible&&metarPts.length){
     const{lo,hi,range}=metarTRange();
     const tToY=t=>PAD.top+(1-(t-lo)/range)*cH;
-    const tToX=t=>PAD.left+((t-dayStart)/86400)*cW;
+    const tToX=t=>xOfTs(t,cW);
     ctx.fillStyle=METAR_COLOR;ctx.font='10px Inter,system-ui,sans-serif';
     ctx.textAlign='left';ctx.textBaseline='middle';
     const step=(hi-lo)<=6?1:2;
@@ -365,7 +451,8 @@ function drawDayChart() {
     ctx.beginPath();ctx.moveTo(PAD.left+cW,PAD.top);ctx.lineTo(PAD.left+cW,PAD.top+cH);ctx.stroke();
     ctx.strokeStyle=METAR_COLOR;ctx.lineWidth=2;ctx.lineJoin='round';ctx.setLineDash([6,3]);ctx.globalAlpha=0.9;
     ctx.beginPath();
-    metarPts.forEach((pt,i)=>{const x=tToX(pt.t),y=tToY(tempFromCelsius(pt.temp));if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
+    metarPts.filter(pt=>pt.t>=viewStart&&pt.t<=viewEnd)
+      .forEach((pt,i)=>{const x=tToX(pt.t),y=tToY(tempFromCelsius(pt.temp));if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
     ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
   }
 }
@@ -375,6 +462,11 @@ function initOverlay() {
   const canvas=document.getElementById('overlay');
   canvas.addEventListener('mousemove',onMouseMove);
   canvas.addEventListener('mouseleave',onMouseLeave);
+  canvas.addEventListener('wheel',onChartWheel,{passive:false});
+  canvas.addEventListener('pointerdown',onChartPointerDown);
+  canvas.addEventListener('pointermove',onChartPointerMove);
+  canvas.addEventListener('pointerup',onChartPointerUp);
+  canvas.addEventListener('pointercancel',onChartPointerUp);
 }
 
 function onMouseLeave() {
@@ -399,7 +491,7 @@ function onMouseMove(e) {
 
   if(mx<PAD.left||mx>PAD.left+cW||my<PAD.top||my>PAD.top+cH){document.getElementById('tooltip').style.display='none';return;}
 
-  const hoverTs=dayStart+((mx-PAD.left)/cW)*86400;
+  const hoverTs=tsOfX(mx,cW);
 
   overlayCtx.strokeStyle='rgba(255,255,255,0.18)';overlayCtx.lineWidth=1;overlayCtx.setLineDash([3,3]);
   overlayCtx.beginPath();overlayCtx.moveTo(mx,PAD.top);overlayCtx.lineTo(mx,PAD.top+cH);overlayCtx.stroke();
@@ -407,11 +499,11 @@ function onMouseMove(e) {
 
   const rows=[];
   visibleMarkets().forEach(m=>{
-    const pts=m.history.filter(pt=>pt.t>=dayStart&&pt.t<=dayEnd+7200);
+    const pts=m.history.filter(pt=>pt.t>=viewStart&&pt.t<=viewEnd);
     if(!pts.length)return;
     let best=pts[0],bestD=Infinity;
     pts.forEach(pt=>{const d=Math.abs(pt.t-hoverTs);if(d<bestD){bestD=d;best=pt;}});
-    const px=PAD.left+((best.t-dayStart)/86400)*cW;
+    const px=xOfTs(best.t,cW);
     const py=PAD.top+(1-Math.max(0,Math.min(1,best.p)))*cH;
     overlayCtx.beginPath();overlayCtx.arc(px,py,4,0,Math.PI*2);
     overlayCtx.fillStyle=m.color;overlayCtx.fill();
@@ -421,14 +513,17 @@ function onMouseMove(e) {
 
   if(metarVisible&&metarPts.length){
     const{lo,hi,range}=metarTRange();
-    let best=metarPts[0],bestD=Infinity;
-    metarPts.forEach(pt=>{const d=Math.abs(pt.t-hoverTs);if(d<bestD){bestD=d;best=pt;}});
-    const px=PAD.left+((best.t-dayStart)/86400)*cW;
-    const py=PAD.top+(1-(tempFromCelsius(best.temp)-lo)/range)*cH;
-    overlayCtx.beginPath();overlayCtx.arc(px,py,4,0,Math.PI*2);
-    overlayCtx.fillStyle=METAR_COLOR;overlayCtx.fill();
-    overlayCtx.strokeStyle='rgba(255,255,255,0.8)';overlayCtx.lineWidth=1.5;overlayCtx.stroke();
-    rows.push({color:METAR_COLOR,label:'Temp',value:formatTempFromCelsius(best.temp),ts:best.t});
+    const visibleMetar=metarPts.filter(pt=>pt.t>=viewStart&&pt.t<=viewEnd);
+    let best=visibleMetar[0],bestD=Infinity;
+    visibleMetar.forEach(pt=>{const d=Math.abs(pt.t-hoverTs);if(d<bestD){bestD=d;best=pt;}});
+    if(best){
+      const px=xOfTs(best.t,cW);
+      const py=PAD.top+(1-(tempFromCelsius(best.temp)-lo)/range)*cH;
+      overlayCtx.beginPath();overlayCtx.arc(px,py,4,0,Math.PI*2);
+      overlayCtx.fillStyle=METAR_COLOR;overlayCtx.fill();
+      overlayCtx.strokeStyle='rgba(255,255,255,0.8)';overlayCtx.lineWidth=1.5;overlayCtx.stroke();
+      rows.push({color:METAR_COLOR,label:'Temp',value:formatTempFromCelsius(best.temp),ts:best.t});
+    }
   }
 
   if(!rows.length){document.getElementById('tooltip').style.display='none';return;}
@@ -448,6 +543,60 @@ function onMouseMove(e) {
   tip.style.left=tx+'px';tip.style.top=ty+'px';
 }
 
+function onChartWheel(e) {
+  if(!dayStart||!markets.length)return;
+  const canvas=document.getElementById('overlay');
+  const pr=rPad();
+  const cW=canvas.clientWidth-PAD.left-pr;
+  const cH=canvas.clientHeight-PAD.top-PAD.bottom;
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  if(mx<PAD.left||mx>PAD.left+cW||my<PAD.top||my>PAD.top+cH)return;
+  e.preventDefault();
+  zoomChart(e.deltaY < 0 ? 0.75 : 1.33, tsOfX(mx,cW));
+  onMouseMove(e);
+}
+
+function chartPoint(e) {
+  const canvas=document.getElementById('overlay');
+  const pr=rPad();
+  const cW=canvas.clientWidth-PAD.left-pr;
+  const cH=canvas.clientHeight-PAD.top-PAD.bottom;
+  const rect=canvas.getBoundingClientRect();
+  return { canvas, cW, cH, mx:e.clientX-rect.left, my:e.clientY-rect.top };
+}
+
+function isInsideChartPoint(pt) {
+  return pt.mx>=PAD.left&&pt.mx<=PAD.left+pt.cW&&pt.my>=PAD.top&&pt.my<=PAD.top+pt.cH;
+}
+
+function onChartPointerDown(e) {
+  if(!dayStart||!markets.length||e.button!==0)return;
+  const pt=chartPoint(e);
+  if(!isInsideChartPoint(pt))return;
+  panState={pointerId:e.pointerId,startX:pt.mx,startViewStart:viewStart,startViewEnd:viewEnd,moved:false};
+  pt.canvas.setPointerCapture(e.pointerId);
+  pt.canvas.classList.add('is-panning');
+}
+
+function onChartPointerMove(e) {
+  if(!panState||e.pointerId!==panState.pointerId)return;
+  const pt=chartPoint(e);
+  const span=panState.startViewEnd-panState.startViewStart;
+  const deltaTs=((pt.mx-panState.startX)/pt.cW)*span;
+  if(Math.abs(pt.mx-panState.startX)>2)panState.moved=true;
+  setViewRange(panState.startViewStart-deltaTs,panState.startViewEnd-deltaTs);
+  onMouseMove(e);
+}
+
+function onChartPointerUp(e) {
+  if(!panState||e.pointerId!==panState.pointerId)return;
+  const canvas=document.getElementById('overlay');
+  if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);
+  canvas.classList.remove('is-panning');
+  panState=null;
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 function init() {
   const dp=document.getElementById('datePicker');
@@ -458,6 +607,9 @@ function init() {
 
   document.getElementById('loadBtn').onclick=triggerLoad;
   document.getElementById('metarBtn').onclick=toggleMetar;
+  document.getElementById('zoomInBtn').onclick=()=>zoomChart(0.75);
+  document.getElementById('zoomOutBtn').onclick=()=>zoomChart(1.33);
+  document.getElementById('zoomResetBtn').onclick=()=>resetZoom();
   dp.addEventListener('keydown',e=>{if(e.key==='Enter'&&dp.value)loadDay(dp.value);});
 
   initCityTabs();

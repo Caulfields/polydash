@@ -56,6 +56,20 @@
     .metar-btn.active { background: rgba(56,189,248,0.1); color: #38bdf8; border-color: rgba(56,189,248,0.3); }
     .metar-btn:disabled { opacity: 0.35; cursor: default; }
 
+    .zoom-controls {
+      display: flex; align-items: center; gap: 2px;
+      padding: 2px; border: 1px solid var(--border);
+      background: var(--surface); border-radius: 6px;
+    }
+    .zoom-btn {
+      width: 28px; height: 24px; border: 0; border-radius: 4px;
+      background: transparent; color: var(--dim); cursor: pointer;
+      font: 600 12px/1 'Inter', system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    .zoom-btn:hover { background: var(--surface2); color: var(--text); }
+    .zoom-btn:disabled { opacity: 0.35; cursor: default; }
+
     input[type="date"], input[type="month"] {
       background: var(--surface); border: 1px solid var(--border);
       color: var(--text); border-radius: 6px; padding: 4px 8px;
@@ -90,6 +104,7 @@
     .chart-wrap { flex: 1; position: relative; overflow: hidden; min-height: 0; }
     canvas { position: absolute !important; top: 0; left: 0; width: 100% !important; height: 100% !important; }
     #overlay { cursor: crosshair; }
+    #overlay.is-panning { cursor: grabbing; }
 
     .loader {
       position: absolute; inset: 0; display: flex; align-items: center;
